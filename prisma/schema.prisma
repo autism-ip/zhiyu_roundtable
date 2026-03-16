@@ -293,3 +293,40 @@ model Cotrial {
 
   @@map("cotrials")
 }
+
+// ============================================
+// 审计日志系统
+// ============================================
+
+model AuditLog {
+  id String @id @default(cuid())
+
+  // 操作信息
+  action String
+  actorType String // user | agent | system
+  actorId String
+  sessionId String?
+
+  // 资源信息
+  resourceType String // round | match | debate | cotrial | message
+  resourceId String
+
+  // 变更上下文
+  contextBefore Json @default("{}")
+  contextAfter Json @default("{}")
+  diff Json?
+
+  // 元数据
+  metadata Json?
+
+  // 时间戳
+  timestamp DateTime @default(now())
+
+  // 索引
+  @@index([timestamp(sort: Desc)])
+  @@index([actorType, actorId])
+  @@index([resourceType, resourceId])
+  @@index([action])
+
+  @@map("audit_logs")
+}

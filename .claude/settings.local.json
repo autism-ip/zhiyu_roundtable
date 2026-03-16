@@ -25,7 +25,10 @@
       "Bash(__NEW_LINE_993563cc7c1210d7__ echo:*)",
       "Bash(do:*)",
       "Bash(kill:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "WebSearch",
+      "mcp__Ref__ref_search_documentation",
+      "mcp__Ref__ref_read_url"
     ]
   }
 }

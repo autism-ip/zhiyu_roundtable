@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 vitest 和 CardGenerator
+ * [INPUT]: 依赖 vitest 和 CardGenerator，依赖 MinimaxClient
  * [OUTPUT]: 对外提供知遇卡生成器的 TDD 测试
  * [POS]: lib/bole/__tests__/card-generator.test.ts - 伯乐层单元测试
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -7,7 +7,14 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { CardGenerator, CardGeneratorConfig } from '../card-generator';
+import { getMinimaxClient, resetMinimaxClient } from '@/lib/ai/minimax-client';
 import type { Round, Message, User } from '@/types';
+
+// Mock Minimax 客户端
+vi.mock('@/lib/ai/minimax-client', () => ({
+  getMinimaxClient: vi.fn(),
+  resetMinimaxClient: vi.fn(),
+}));
 
 describe('CardGenerator', () => {
   let generator: CardGenerator;
@@ -194,3 +201,173 @@ function createMockMessages(): Message[] {
     },
   ];
 }
+
+// ============================================
+// AI 集成测试 - Minimax 调用
+// ============================================
+
+describe('CardGenerator AI Integration', () => {
+  let generator: CardGenerator;
+  let mockMinimaxClient: any;
+
+  beforeEach(() => {
+    // 创建 mock 客户端
+    mockMinimaxClient = {
+      chatJSON: vi.fn(),
+      chat: vi.fn(),
+    };
+
+    vi.mocked(getMinimaxClient).mockReturnValue(mockMinimaxClient as any);
+
+    generator = new CardGenerator({
+      minComplementarityScore: 60,
+      maxMatchesPerRound: 3,
+    });
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+    resetMinimaxClient();
+  });
+
+  it('应调用 Minimax API 分析用户互补性', async () => {
+    // Arrange
+    const round = createMockRound({
+      createdAt: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
+    });
+
+    const mockParticipants = createMockParticipants(2);
+    const mockMessages = createMockMessages();
+
+    vi.spyOn(generator as any, 'getRoundParticipants').mockResolvedValue(mockParticipants);
+    vi.spyOn(generator as any, 'getRoundMessages').mockResolvedValue(mockMessages);
+
+    // Mock Minimax 返回
+    mockMinimaxClient.chatJSON.mockResolvedValue({
+      complementarityScore: 85,
+      futureGenerativity: 88,
+      overallScore: 86.5,
+      relationshipType: 'cofounder',
+      matchReason: '你们在AI和教育领域有高度互补的专业背景',
+      complementarityAreas: ['技术', '教育', '产品设计'],
+      insights: [
+        '用户A在技术实现上有深度',
+        '用户B在教育场景理解上有优势',
+      ],
+    });
+
+    // Act
+    const matches = await generator.generateMatches(round);
+
+    // Assert - 验证 Minimax 被调用
+    expect(mockMinimaxClient.chatJSON).toHaveBeenCalled();
+
+    // 验证返回结果
+    expect(matches).toHaveLength(1);
+    expect(matches[0].complementarityScore).toBe(85);
+    expect(matches[0].relationshipType).toBe('cofounder');
+  });
+
+  it('当 Minimax API 失败时应返回兜底数据', async () => {
+    // Arrange
+    const round = createMockRound({
+      createdAt: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
+    });
+
+    const mockParticipants = createMockParticipants(2);
+    const mockMessages = createMockMessages();
+
+    vi.spyOn(generator as any, 'getRoundParticipants').mockResolvedValue(mockParticipants);
+    vi.spyOn(generator as any, 'getRoundMessages').mockResolvedValue(mockMessages);
+
+    // Mock Minimax 抛出异常
+    mockMinimaxClient.chatJSON.mockRejectedValue(new Error('API Error'));
+
+    // Act
+    const matches = await generator.generateMatches(round);
+
+    // Assert - 应该返回兜底数据而不是抛出异常
+    expect(matches).toBeDefined();
+    // 由于兜底数据评分可能低于阈值，返回空数组
+    expect(Array.isArray(matches)).toBe(true);
+  });
+
+  it('应正确构建发给 Minimax 的 prompt', async () => {
+    // Arrange
+    const round = createMockRound({
+      id: 'round-test-123',
+      name: 'AI 与未来教育',
+      createdAt: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
+    });
+
+    const mockParticipants = [
+      {
+        id: 'user-1',
+        email: 'user1@test.com',
+        name: '张三',
+        avatar: null,
+        secondmeId: 'sm-1',
+        interests: ['AI', '技术', '产品'],
+        connectionTypes: ['cofounder', 'peer'],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+      {
+        id: 'user-2',
+        email: 'user2@test.com',
+        name: '李四',
+        avatar: null,
+        secondmeId: 'sm-2',
+        interests: ['教育', '设计', '用户体验'],
+        connectionTypes: ['peer', 'advisor'],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ];
+
+    const mockMessages = [
+      {
+        id: 'msg-1',
+        roundId: 'round-test-123',
+        agentId: 'agent-1',
+        content: '我认为大模型会彻底改变在线教育的方式，通过个性化学习路径和实时反馈...',
+        type: 'text' as const,
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'msg-2',
+        roundId: 'round-test-123',
+        agentId: 'agent-2',
+        content: '但从技术实现角度，我们需要解决延迟、算力成本和内容生成质量的问题...',
+        type: 'text' as const,
+        createdAt: new Date().toISOString(),
+      },
+    ];
+
+    vi.spyOn(generator as any, 'getRoundParticipants').mockResolvedValue(mockParticipants as any);
+    vi.spyOn(generator as any, 'getRoundMessages').mockResolvedValue(mockMessages as any);
+
+    mockMinimaxClient.chatJSON.mockResolvedValue({
+      complementarityScore: 80,
+      futureGenerativity: 85,
+      overallScore: 82.5,
+      relationshipType: 'cofounder',
+      matchReason: '技术+教育的完美组合',
+      complementarityAreas: ['AI技术', '教育产品'],
+      insights: ['互补性强'],
+    });
+
+    // Act
+    await generator.generateMatches(round);
+
+    // Assert - 验证 prompt 包含了必要信息
+    const callArgs = mockMinimaxClient.chatJSON.mock.calls[0];
+    const systemPrompt = callArgs[0] as string;
+    const userPrompt = callArgs[1] as string;
+
+    expect(systemPrompt).toContain('知遇卡');
+    expect(userPrompt).toContain('张三');
+    expect(userPrompt).toContain('李四');
+    expect(userPrompt).toContain('大模型');
+  });
+});

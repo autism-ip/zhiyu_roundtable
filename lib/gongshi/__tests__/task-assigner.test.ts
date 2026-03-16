@@ -1,13 +1,20 @@
 /**
- * [INPUT]: 依赖 vitest 和 TaskAssigner
+ * [INPUT]: 依赖 vitest 和 TaskAssigner，依赖 MinimaxClient
  * [OUTPUT]: 对外提供共试层任务分配器的 TDD 测试
  * [POS]: lib/gongshi/__tests__/task-assigner.test.ts - 共试层单元测试
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { TaskAssigner, TaskAssignerConfig } from '../task-assigner';
+import { getMinimaxClient, resetMinimaxClient } from '@/lib/ai/minimax-client';
 import type { Debate, User } from '@/types';
+
+// Mock Minimax 客户端
+vi.mock('@/lib/ai/minimax-client', () => ({
+  getMinimaxClient: vi.fn(),
+  resetMinimaxClient: vi.fn(),
+}));
 
 describe('TaskAssigner', () => {
   let assigner: TaskAssigner;
@@ -234,3 +241,129 @@ function createMockUser(overrides: Partial<User> = {}): User {
     ...overrides,
   };
 }
+
+// ============================================
+// AI 集成测试 - Minimax 调用
+// ============================================
+
+describe('TaskAssigner AI Integration', () => {
+  let assigner: TaskAssigner;
+  let mockMinimaxClient: any;
+
+  beforeEach(() => {
+    // 创建 mock 客户端
+    mockMinimaxClient = {
+      chatJSON: vi.fn(),
+      chat: vi.fn(),
+    };
+
+    vi.mocked(getMinimaxClient).mockReturnValue(mockMinimaxClient as any);
+
+    assigner = new TaskAssigner({
+      defaultTaskDuration: 7,
+      minTaskComplexity: 1,
+      maxTaskComplexity: 5,
+    });
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+    resetMinimaxClient();
+  });
+
+  it('应使用 Minimax 生成个性化任务描述', async () => {
+    // Arrange
+    const debate = createMockDebate({
+      relationshipSuggestion: 'cofounder',
+      analysis: {
+        healthScore: 85,
+        concessionAbility: 80,
+        riskAppetite: 70,
+        decisionStyle: { userA: 'analytical', userB: 'intuitive' },
+        disagreementType: [],
+      },
+    });
+    const userA = createMockUser({ name: '张三', expertise: ['AI', '技术'] });
+    const userB = createMockUser({ name: '李四', expertise: ['产品', '设计'] });
+
+    // Mock Minimax 返回
+    mockMinimaxClient.chatJSON.mockResolvedValue({
+      taskType: 'co_collaboration',
+      taskDescription: '张三和李四一起开发一个AI教育产品原型',
+      taskGoal: '验证双方在产品设计和技术实现上的协作能力',
+      complexity: 4,
+      estimatedHours: 20,
+      deliverables: ['产品原型', '技术方案', '演示视频'],
+      successCriteria: ['按时交付', '双方满意', '可演示'],
+    });
+
+    // Act
+    const recommendation = await assigner.assignTask(debate, userA, userB);
+
+    // Assert - 验证 Minimax 被调用
+    expect(mockMinimaxClient.chatJSON).toHaveBeenCalled();
+    expect(recommendation.task.taskDescription).toContain('张三');
+  });
+
+  it('当 Minimax API 失败时应使用规则引擎兜底', async () => {
+    // Arrange
+    const debate = createMockDebate();
+    const userA = createMockUser({ name: '张三' });
+    const userB = createMockUser({ name: '李四' });
+
+    // Mock Minimax 抛出异常
+    mockMinimaxClient.chatJSON.mockRejectedValue(new Error('API Error'));
+
+    // Act
+    const recommendation = await assigner.assignTask(debate, userA, userB);
+
+    // Assert - 应该返回规则引擎的结果
+    expect(recommendation.task).toBeDefined();
+    expect(recommendation.task.taskType).toBeDefined();
+    expect(recommendation.riskLevel).toBeDefined();
+  });
+
+  it('应根据用户专业背景定制任务', async () => {
+    // Arrange
+    const debate = createMockDebate({
+      analysis: {
+        healthScore: 80,
+        concessionAbility: 75,
+        riskAppetite: 65,
+        decisionStyle: { userA: 'analytical', userB: 'collaborative' },
+        disagreementType: [],
+      },
+    });
+    const userA = createMockUser({
+      name: '技术专家王',
+      interests: ['后端开发', '架构设计', 'AI算法']
+    });
+    const userB = createMockUser({
+      name: '产品经理赵',
+      interests: ['产品设计', '用户研究', '增长运营']
+    });
+
+    // Mock Minimax
+    mockMinimaxClient.chatJSON.mockResolvedValue({
+      taskType: 'co_collaboration',
+      taskDescription: '技术专家王和产品经理赵共同打造一个AI驱动的内容推荐系统',
+      taskGoal: '验证技术和产品思维的碰撞能否产生创新',
+      complexity: 4,
+      estimatedHours: 24,
+      deliverables: ['产品方案', '技术原型', 'Demo演示'],
+      successCriteria: ['功能完整', '用户体验良好', '技术可行'],
+    });
+
+    // Act
+    const recommendation = await assigner.assignTask(debate, userA, userB);
+
+    // Assert
+    expect(mockMinimaxClient.chatJSON).toHaveBeenCalled();
+    const callArgs = mockMinimaxClient.chatJSON.mock.calls[0];
+    const userPrompt = callArgs[1] as string;
+
+    // 验证 prompt 包含用户专业背景
+    expect(userPrompt).toContain('后端开发');
+    expect(userPrompt).toContain('产品设计');
+  });
+});

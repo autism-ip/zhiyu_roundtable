@@ -1,10 +1,11 @@
 /**
- * [INPUT]: 依赖 lib/supabase/client 的 SupabaseClient
+ * [INPUT]: 依赖 lib/supabase/client 的 SupabaseClient，依赖 lib/ai/minimax-client
  * [OUTPUT]: 对外提供共试层任务分配器
  * [POS]: lib/gongshi/task-assigner.ts - 共试层任务分配
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
+import { getMinimaxClient, MinimaxClient } from '@/lib/ai/minimax-client';
 import type { Database } from '@/lib/supabase/types';
 import type { Debate, User } from '@/types';
 
@@ -12,6 +13,7 @@ export interface TaskAssignerConfig {
   defaultTaskDuration: number; // 天数
   minTaskComplexity: number;
   maxTaskComplexity: number;
+  minimaxModel?: string;
 }
 
 export interface CoTrialTask {
@@ -37,16 +39,32 @@ export interface TaskRecommendation {
   prerequisites: string[];
 }
 
+/**
+ * Minimax 返回的任务生成结果
+ */
+interface MinimaxTaskResult {
+  taskType: CoTrialTask['taskType'];
+  taskDescription: string;
+  taskGoal: string;
+  complexity: number;
+  estimatedHours: number;
+  deliverables: string[];
+  successCriteria: string[];
+}
+
 export class TaskAssigner {
   private config: TaskAssignerConfig;
+  private minimaxClient: MinimaxClient;
 
   constructor(config: Partial<TaskAssignerConfig> = {}) {
     this.config = {
       defaultTaskDuration: 7, // 7天
       minTaskComplexity: 1,
       maxTaskComplexity: 5,
+      minimaxModel: 'abab6.5s-chat',
       ...config,
     };
+    this.minimaxClient = getMinimaxClient();
   }
 
   /**
@@ -57,6 +75,215 @@ export class TaskAssigner {
    * @returns 任务推荐
    */
   async assignTask(
+    debate: Debate,
+    userA: User,
+    userB: User
+  ): Promise<TaskRecommendation> {
+    // 优先尝试使用 Minimax 生成个性化任务
+    try {
+      const aiResult = await this.generateTaskWithAI(debate, userA, userB);
+
+      if (aiResult) {
+        // 计算适配度评分
+        const fitScore = this.calculateFitScoreFromAI(aiResult, debate, userA, userB);
+
+        // 确定风险等级
+        const riskLevel = this.assessRiskLevelFromAI(aiResult, debate);
+
+        // 生成任务对象
+        const task: CoTrialTask = {
+          id: `task-${Date.now()}`,
+          debateId: debate.id,
+          taskType: aiResult.taskType,
+          taskDescription: aiResult.taskDescription,
+          taskGoal: aiResult.taskGoal,
+          taskDuration: `${this.config.defaultTaskDuration}天`,
+          complexity: aiResult.complexity,
+          estimatedHours: aiResult.estimatedHours,
+          deliverables: aiResult.deliverables,
+          successCriteria: aiResult.successCriteria,
+          resources: this.generateResources(aiResult.taskType),
+          createdAt: new Date().toISOString(),
+        };
+
+        return {
+          task,
+          rationale: this.generateRationaleFromAI(task, debate, fitScore),
+          fitScore,
+          riskLevel,
+          prerequisites: this.identifyPrerequisites(task),
+        };
+      }
+    } catch (error) {
+      console.error('Minimax API 调用失败，使用规则引擎:', error);
+    }
+
+    // 兜底：使用规则引擎
+    return this.assignTaskWithRules(debate, userA, userB);
+  }
+
+  /**
+   * 使用 Minimax AI 生成个性化任务
+   */
+  private async generateTaskWithAI(
+    debate: Debate,
+    userA: User,
+    userB: User
+  ): Promise<MinimaxTaskResult | null> {
+    const systemPrompt = `你是共试层的任务生成专家。你的任务是根据争鸣层分析结果和用户背景，生成个性化的协作任务建议。
+
+任务类型：
+1. co_write - 协作写作：共同撰写文章、文档
+2. co_demo - 协作演示：制作Demo、视频或原型
+3. co_answer - 协作问答：共同回答一个问题
+4. co_proposal - 协作提案：撰写合作提案
+5. co_collaboration - 深度协作：完整项目合作
+
+请根据以下信息生成任务：
+- 任务必须符合双方的背景和能力
+- 任务复杂度要匹配争鸣层的健康度评分
+- 任务目标要具体可衡量
+
+请严格按照JSON格式输出：
+{
+  "taskType": "co_write|co_demo|co_answer|co_proposal|co_collaboration",
+  "taskDescription": "任务描述（包含用户名字）",
+  "taskGoal": "任务目标",
+  "complexity": 1-5,
+  "estimatedHours": 预估小时数,
+  "deliverables": ["交付物1", "交付物2"],
+  "successCriteria": ["成功标准1", "成功标准2"]
+}`;
+
+    const userPrompt = `请为以下用户生成共试任务：
+
+用户A：
+- 名字：${userA.name || '未知'}
+- 专业背景：${userA.interests?.join(', ') || '未知'}
+
+用户B：
+- 名字：${userB.name || '未知'}
+- 专业背景：${userB.interests?.join(', ') || '未知'}
+
+争鸣层分析结果：
+- 健康度评分：${debate.analysis?.healthScore || 60}
+- 让步能力：${debate.analysis?.concessionAbility || 60}
+- 风险偏好：${debate.analysis?.riskAppetite || 50}
+- 用户A决策风格：${debate.analysis?.decisionStyle?.userA || 'analytical'}
+- 用户B决策风格：${debate.analysis?.decisionStyle?.userB || 'analytical'}
+- 关系建议：${debate.relationshipSuggestion || '同道'}
+- 识别出的风险：${(debate.riskAreas || []).join(', ') || '无'}`;
+
+    try {
+      const result = await this.minimaxClient.chatJSON<MinimaxTaskResult>(
+        systemPrompt,
+        userPrompt,
+        {
+          temperature: 0.5,
+          maxTokens: 2048,
+        }
+      );
+
+      // 验证结果
+      return {
+        taskType: this.validateTaskType(result.taskType),
+        taskDescription: result.taskDescription || '',
+        taskGoal: result.taskGoal || '',
+        complexity: Math.max(1, Math.min(5, result.complexity || 3)),
+        estimatedHours: result.estimatedHours || 8,
+        deliverables: result.deliverables || [],
+        successCriteria: result.successCriteria || [],
+      };
+    } catch (error) {
+      console.error('Minimax 任务生成失败:', error);
+      return null;
+    }
+  }
+
+  /**
+   * 验证任务类型
+   */
+  private validateTaskType(type: string): CoTrialTask['taskType'] {
+    const validTypes: CoTrialTask['taskType'][] = [
+      'co_write', 'co_demo', 'co_answer', 'co_proposal', 'co_collaboration'
+    ];
+    return validTypes.includes(type as any) ? type as CoTrialTask['taskType'] : 'co_collaboration';
+  }
+
+  /**
+   * 根据 AI 结果计算适配度
+   */
+  private calculateFitScoreFromAI(
+    task: MinimaxTaskResult,
+    debate: Debate,
+    userA: User,
+    userB: User
+  ): number {
+    let score = 70; // 基础分
+
+    // 根据健康度调整
+    const healthScore = debate.analysis?.healthScore || 60;
+    score += (healthScore - 60) * 0.3;
+
+    // 根据复杂度匹配
+    if (task.complexity <= 2) {
+      score += 10;
+    } else if (task.complexity >= 4) {
+      score -= 10;
+    }
+
+    return Math.min(100, Math.max(0, Math.round(score)));
+  }
+
+  /**
+   * 根据 AI 结果评估风险
+   */
+  private assessRiskLevelFromAI(task: MinimaxTaskResult, debate: Debate): 'low' | 'medium' | 'high' {
+    let riskScore = 0;
+
+    // 复杂度风险
+    riskScore += task.complexity * 15;
+
+    // 健康度风险
+    const healthScore = debate.analysis?.healthScore || 60;
+    riskScore += (100 - healthScore) * 0.4;
+
+    if (riskScore < 35) return 'low';
+    if (riskScore < 65) return 'medium';
+    return 'high';
+  }
+
+  /**
+   * 生成 AI 版本的推荐理由
+   */
+  private generateRationaleFromAI(
+    task: CoTrialTask,
+    debate: Debate,
+    fitScore: number
+  ): string {
+    const healthScore = debate.analysis?.healthScore || 60;
+
+    let rationale = `基于争鸣层的分析结果（健康度 ${healthScore}），`;
+
+    if (healthScore >= 80) {
+      rationale += '你们展现了出色的协作潜力，这个任务将帮助验证你们的实际协作能力。';
+    } else if (healthScore >= 60) {
+      rationale += '你们有一定的合作基础，这个任务可以帮助进一步验证。';
+    } else {
+      rationale += '建议从轻量级任务开始，逐步建立协作信任。';
+    }
+
+    if (fitScore >= 80) {
+      rationale += `\n\n系统评估任务匹配度：${fitScore}%，非常适合你们！`;
+    }
+
+    return rationale;
+  }
+
+  /**
+   * 规则引擎兜底方案
+   */
+  private async assignTaskWithRules(
     debate: Debate,
     userA: User,
     userB: User
@@ -81,12 +308,6 @@ export class TaskAssigner {
     // 估算所需时间
     const estimatedHours = this.estimateHours(complexity, taskType);
 
-    // 生成交付物清单
-    const deliverables = this.generateDeliverables(taskType);
-
-    // 定义成功标准
-    const successCriteria = this.generateSuccessCriteria(taskType, debate);
-
     // 生成任务
     const task: CoTrialTask = {
       id: `task-${Date.now()}`,
@@ -97,8 +318,8 @@ export class TaskAssigner {
       taskDuration: `${this.config.defaultTaskDuration}天`,
       complexity,
       estimatedHours,
-      deliverables,
-      successCriteria,
+      deliverables: this.generateDeliverables(taskType),
+      successCriteria: this.generateSuccessCriteria(taskType, debate),
       resources: this.generateResources(taskType),
       createdAt: new Date().toISOString(),
     };

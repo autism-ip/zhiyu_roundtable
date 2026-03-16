@@ -1,10 +1,11 @@
 /**
- * [INPUT]: 依赖 lib/supabase/client 的 SupabaseClient
+ * [INPUT]: 依赖 lib/supabase/client 的 SupabaseClient，依赖 lib/ai/minimax-client
  * [OUTPUT]: 对外提供争鸣层对练引擎
  * [POS]: lib/zhengming/debate-engine.ts - 争鸣层对练引擎
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
+import { getMinimaxClient, MinimaxClient } from '@/lib/ai/minimax-client';
 import type { Database } from '@/lib/supabase/types';
 import type { Match, User } from '@/types';
 
@@ -12,6 +13,7 @@ export interface DebateEngineConfig {
   minQuestions: number;
   maxQuestions: number;
   analysisThreshold: number;
+  minimaxModel?: string;
 }
 
 export interface DebateQuestion {
@@ -53,16 +55,41 @@ export interface DebateResult {
   nextSteps: string[];
 }
 
+/**
+ * Minimax 返回的问题生成结果
+ */
+interface MinimaxQuestionResult {
+  questions: DebateQuestion[];
+}
+
+/**
+ * Minimax 返回的分析结果
+ */
+interface MinimaxAnalysisResult {
+  concessionAbility: number;
+  boundaryAwareness: number;
+  riskAppetite: number;
+  decisionStyle: {
+    userA: string;
+    userB: string;
+  };
+  disagreementType: string[];
+  healthScore: number;
+}
+
 export class DebateEngine {
   private config: DebateEngineConfig;
+  private minimaxClient: MinimaxClient;
 
   constructor(config: Partial<DebateEngineConfig> = {}) {
     this.config = {
       minQuestions: 3,
       maxQuestions: 5,
       analysisThreshold: 70,
+      minimaxModel: 'abab6.5s-chat',
       ...config,
     };
+    this.minimaxClient = getMinimaxClient();
   }
 
   /**
@@ -71,8 +98,8 @@ export class DebateEngine {
    * @returns 争鸣层对练结果
    */
   async initiateDebate(match: Match): Promise<DebateResult> {
-    // 生成问题
-    const questions = await this.generateQuestions(match);
+    // 使用 Minimax 生成问题
+    const questions = await this.generateQuestionsWithAI(match);
 
     // 初始化结果对象
     const result: DebateResult = {
@@ -102,19 +129,9 @@ export class DebateEngine {
     userId: string,
     response: string
   ): Promise<void> {
-    // 实际实现中应该保存到数据库
-    // 这里记录响应
-    const responseData: DebateResponse = {
-      questionId,
-      userAId: userId,
-      userBId: '', // 由实际逻辑填充
-      userAResponse: response,
-      userBResponse: '', // 等待对方回答
-      timestamp: new Date().toISOString(),
-    };
-
     // TODO: 保存到数据库
-    console.log('Response submitted:', responseData);
+    // await prisma.debateResponse.create({...})
+    console.log('Response submitted:', { debateId, questionId, userId, response });
   }
 
   /**
@@ -126,8 +143,8 @@ export class DebateEngine {
     // 获取所有回答
     const responses = await this.getDebateResponses(debateId);
 
-    // 分析回答内容
-    const analysis = await this.analyzeResponses(responses);
+    // 使用 Minimax 分析回答内容
+    const analysis = await this.analyzeResponsesWithAI(responses);
 
     // 生成建议
     const suggestion = this.generateRelationshipSuggestion(analysis);
@@ -143,7 +160,7 @@ export class DebateEngine {
 
     const result: DebateResult = {
       matchId: debateId,
-      questions: [], // 由实际逻辑填充
+      questions: [],
       responses,
       analysis,
       relationshipSuggestion: suggestion,
@@ -156,73 +173,176 @@ export class DebateEngine {
   }
 
   /**
-   * 生成争鸣层问题
-   * @param match - 知遇卡信息
-   * @returns 问题列表
+   * 使用 Minimax AI 生成争鸣层问题
    */
-  private async generateQuestions(match: Match): Promise<DebateQuestion[]> {
-    // 根据匹配关系类型生成相应问题
-    const questions: DebateQuestion[] = [
+  private async generateQuestionsWithAI(match: Match): Promise<DebateQuestion[]> {
+    const systemPrompt = `你是争鸣层的问题生成专家。你的任务是根据知遇卡信息，生成用于验证双方合作可行性的结构化问题。
+
+问题类型：
+1. conflict - 冲突处理类问题：测试用户如何处理意见分歧
+2. scenario - 场景模拟类问题：了解用户在过去类似场景中的表现
+3. decision - 决策风格类问题：测试用户的决策方式和优先级
+
+请生成 ${this.config.minQuestions} 个问题，确保：
+- 问题与匹配的关系类型相关
+- 能够有效识别潜在的风险领域
+- 避免过于私人或敏感的问题
+
+请严格按照JSON格式输出，格式如下：
+{
+  "questions": [
+    {"id": "q1", "question": "...", "type": "conflict|scenario|decision", "context": "..."}
+  ]
+}`;
+
+    const userPrompt = `请为以下知遇卡生成争鸣层问题：
+
+关系类型：${match.relationshipType}
+匹配原因：${match.matchReason}
+互补领域：${(match.complementarityAreas || []).join(', ')}
+用户A的优势：${match.complementarityAreas?.[0] || '未知'}
+用户B的优势：${match.complementarityAreas?.[1] || '未知'}`;
+
+    try {
+      const result = await this.minimaxClient.chatJSON<MinimaxQuestionResult>(
+        systemPrompt,
+        userPrompt,
+        {
+          temperature: 0.5,
+          maxTokens: 2048,
+        }
+      );
+
+      return result.questions || [];
+    } catch (error) {
+      console.error('Minimax API 调用失败:', error);
+      // 返回兜底问题
+      return this.getFallbackQuestions(match.id);
+    }
+  }
+
+  /**
+   * 使用 Minimax AI 分析回答
+   */
+  private async analyzeResponsesWithAI(
+    responses: DebateResponse[]
+  ): Promise<DebateAnalysis> {
+    if (responses.length === 0) {
+      return this.getFallbackAnalysis();
+    }
+
+    const systemPrompt = `你是争鸣层的分析专家。你的任务是分析双方在争鸣层对练中的回答，评估他们的合作可行性。
+
+分析维度：
+1. 让步能力 (0-100)：用户是否能够在冲突中做出合理让步
+2. 边界意识 (0-100)：用户是否有清晰的个人边界和原则
+3. 风险偏好 (0-100)：用户对风险的容忍程度
+4. 决策风格：intuitive(直觉型), analytical(分析型), collaborative(协作型), directive(指令型)
+5. 分歧类型：values(价值观), methods(方法论), goals(目标), risk_tolerance(风险承受力)
+6. 健康度评分 (0-100)：综合评估双方的合作可行性
+
+请严格按照JSON格式输出，不要包含任何解释。`;
+
+    const userPrompt = `请分析以下争鸣层回答：
+
+${responses.map(r => `
+问题 ${r.questionId}:
+用户A的回答: ${r.userAResponse}
+用户B的回答: ${r.userBResponse}
+`).join('\n')}
+
+请生成分析结果。`;
+
+    try {
+      const result = await this.minimaxClient.chatJSON<MinimaxAnalysisResult>(
+        systemPrompt,
+        userPrompt,
+        {
+          temperature: 0.3,
+          maxTokens: 2048,
+        }
+      );
+
+      // 验证并规范化结果
+      return {
+        concessionAbility: Math.max(0, Math.min(100, result.concessionAbility || 0)),
+        boundaryAwareness: Math.max(0, Math.min(100, result.boundaryAwareness || 0)),
+        riskAppetite: Math.max(0, Math.min(100, result.riskAppetite || 0)),
+        decisionStyle: {
+          userA: this.validateDecisionStyle(result.decisionStyle?.userA),
+          userB: this.validateDecisionStyle(result.decisionStyle?.userB),
+        },
+        disagreementType: result.disagreementType || [],
+        healthScore: Math.max(0, Math.min(100, result.healthScore || 0)),
+      };
+    } catch (error) {
+      console.error('Minimax API 调用失败:', error);
+      return this.getFallbackAnalysis();
+    }
+  }
+
+  /**
+   * 验证决策风格
+   */
+  private validateDecisionStyle(style: string): string {
+    const validStyles = ['intuitive', 'analytical', 'collaborative', 'directive'];
+    return validStyles.includes(style) ? style : 'analytical';
+  }
+
+  /**
+   * 获取兜底问题
+   */
+  private getFallbackQuestions(matchId: string): DebateQuestion[] {
+    return [
       {
-        id: `q1-${match.id}`,
+        id: `q1-${matchId}`,
         question: '如果你们要一起做一个项目，遇到意见分歧时，你会怎么处理？',
         type: 'conflict',
         context: '测试冲突处理能力',
       },
       {
-        id: `q2-${match.id}`,
+        id: `q2-${matchId}`,
         question: '描述一个你过去做过的最冒险的决定，结果如何？',
         type: 'scenario',
         context: '了解风险偏好',
       },
       {
-        id: `q3-${match.id}`,
+        id: `q3-${matchId}`,
         question: '在资源有限的情况下，你会优先考虑产品质量还是上线速度？',
         type: 'decision',
         context: '测试决策风格',
       },
     ];
-
-    return questions;
   }
 
   /**
-   * 获取争鸣层回答
-   * @param debateId - 对练ID
-   * @returns 回答列表
+   * 获取兜底分析结果
    */
-  private async getDebateResponses(debateId: string): Promise<DebateResponse[]> {
-    // 实际实现中从数据库查询
-    return [];
-  }
-
-  /**
-   * 分析回答内容
-   * @param responses - 回答列表
-   * @returns 分析结果
-   */
-  private async analyzeResponses(
-    responses: DebateResponse[]
-  ): Promise<DebateAnalysis> {
-    // 实际实现中应该使用 AI 进行分析
-    // 这里返回模拟数据
+  private getFallbackAnalysis(): DebateAnalysis {
     return {
-      concessionAbility: 75,
-      boundaryAwareness: 80,
-      riskAppetite: 65,
+      concessionAbility: 60,
+      boundaryAwareness: 60,
+      riskAppetite: 50,
       decisionStyle: {
         userA: 'analytical',
-        userB: 'intuitive',
+        userB: 'analytical',
       },
-      disagreementType: ['approach', 'priority'],
-      healthScore: 78,
+      disagreementType: [],
+      healthScore: 60,
     };
   }
 
   /**
+   * 获取争鸣层回答（从数据库）
+   */
+  private async getDebateResponses(debateId: string): Promise<DebateResponse[]> {
+    // TODO: 从 Prisma/Supabase 查询
+    // const responses = await prisma.debateResponse.findMany({...})
+    return [];
+  }
+
+  /**
    * 生成关系建议
-   * @param analysis - 分析结果
-   * @returns 建议文本
    */
   private generateRelationshipSuggestion(analysis: DebateAnalysis): string {
     if (analysis.healthScore >= 80) {
@@ -236,8 +356,6 @@ export class DebateEngine {
 
   /**
    * 识别风险领域
-   * @param analysis - 分析结果
-   * @returns 风险列表
    */
   private identifyRiskAreas(analysis: DebateAnalysis): string[] {
     const risks: string[] = [];
@@ -261,9 +379,6 @@ export class DebateEngine {
 
   /**
    * 生成下一步建议
-   * @param analysis - 分析结果
-   * @param shouldConnect - 是否应该继续联系
-   * @returns 建议列表
    */
   private generateNextSteps(
     analysis: DebateAnalysis,
