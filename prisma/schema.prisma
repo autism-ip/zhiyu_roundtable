@@ -1,0 +1,295 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// [INPUT]: 依赖 PostgreSQL 数据库
+// [OUTPUT]: 定义知遇圆桌完整数据模型
+// [POS]: prisma/schema.prisma - 数据库模型定义中心
+// [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// 用户系统
+// ============================================
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  avatar    String?
+
+  // SecondMe OAuth 信息
+  secondmeId       String? @unique
+  accessToken      String? @db.Text
+  refreshToken     String? @db.Text
+  tokenExpiresAt   DateTime?
+
+  // 用户配置
+  interests        String[] @default([])
+  connectionTypes  String[] @default([])
+  allowAgentAutoJoin Boolean @default(true)
+
+  // 关联
+  agent      Agent?
+  rounds     RoundUser[]
+  matchesA   Match[] @relation("UserAMatches")
+  matchesB   Match[] @relation("UserBMatches")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("users")
+}
+
+// ============================================
+// AI 分身系统
+// ============================================
+
+model Agent {
+  id          String @id @default(cuid())
+  userId      String @unique
+  user        User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Agent 配置
+  name        String
+  personality String? @db.Text
+  expertise   String[] @default([])
+  tone        String @default("friendly")
+
+  // Agent 状态
+  isActive    Boolean @default(true)
+  lastActive  DateTime?
+
+  // 关联
+  messages    Message[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("agents")
+}
+
+// ============================================
+// 议题系统
+// ============================================
+
+model Topic {
+  id          String @id @default(cuid())
+
+  // 议题信息
+  title       String
+  description String? @db.Text
+  category    String @default("other")
+  tags        String[] @default([])
+
+  // 知乎关联
+  zhihuId     String?
+  zhihuUrl    String?
+
+  // 状态
+  status      String @default("active")
+
+  // 关联
+  rounds      Round[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("topics")
+}
+
+// ============================================
+// 圆桌讨论系统
+// ============================================
+
+model Round {
+  id          String @id @default(cuid())
+
+  // 关联
+  topicId     String
+  topic       Topic @relation(fields: [topicId], references: [id])
+
+  // 圆桌配置
+  name        String
+  description String?
+  maxAgents   Int @default(5)
+
+  // 状态
+  status      String @default("waiting")
+
+  // 结果
+  summary     String? @db.Text
+  insights    Json?
+
+  // 关联
+  participants RoundUser[]
+  messages    Message[]
+  matches     Match[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("rounds")
+}
+
+model RoundUser {
+  id        String @id @default(cuid())
+  roundId   String
+  round     Round @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // 参与信息
+  role      String @default("participant")
+  joinedAt  DateTime @default(now())
+  leftAt    DateTime?
+
+  @@unique([roundId, userId])
+  @@map("round_users")
+}
+
+model Message {
+  id        String @id @default(cuid())
+  roundId   String
+  round     Round @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  agentId   String
+  agent     Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  // 消息内容
+  content   String @db.Text
+  type      String @default("text")
+
+  // 元数据
+  metadata  Json?
+
+  // 上下文
+  replyTo   String?
+
+  createdAt DateTime @default(now())
+
+  @@map("messages")
+}
+
+// ============================================
+// 知遇卡系统 (伯乐层输出)
+// ============================================
+
+model Match {
+  id        String @id @default(cuid())
+
+  // 关联
+  roundId   String
+  round     Round @relation(fields: [roundId], references: [id])
+  userAId   String
+  userA     User @relation("UserAMatches", fields: [userAId], references: [id])
+  userBId   String
+  userB     User @relation("UserBMatches", fields: [userBId], references: [id])
+
+  // 匹配数据
+  complementarityScore Float
+  futureGenerativityScore Float
+  overallScore Float
+
+  // 关系分析
+  relationshipType String
+  matchReason String @db.Text
+  complementarityAreas String[]
+
+  // 洞察
+  insights Json?
+
+  // 状态
+  status String @default("pending")
+
+  // 关联
+  debate Debate?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([roundId, userAId, userBId])
+  @@map("matches")
+}
+
+// ============================================
+// 争鸣层系统
+// ============================================
+
+model Debate {
+  id        String @id @default(cuid())
+
+  // 关联
+  matchId   String @unique
+  match     Match @relation(fields: [matchId], references: [id])
+
+  // 争鸣配置
+  scenario String
+
+  // 问题与回答
+  questions Json[]
+  responses Json[]
+
+  // AI 分析结果
+  analysis Json?
+
+  // 关系建议
+  relationshipSuggestion String?
+  shouldConnect Boolean?
+  riskAreas String[]
+  nextSteps String[]
+
+  // 状态
+  status String @default("waiting")
+
+  // 关联
+  cotrial Cotrial?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("debates")
+}
+
+// ============================================
+// 共试层系统
+// ============================================
+
+model Cotrial {
+  id        String @id @default(cuid())
+
+  // 关联
+  debateId  String @unique
+  debate    Debate @relation(fields: [debateId], references: [id])
+
+  // 共试任务
+  taskType String
+
+  // 任务详情
+  taskDescription String @db.Text
+  taskGoal String
+  taskDuration String
+
+  // 结果
+  result String?
+  completed Boolean @default(false)
+  completedAt DateTime?
+
+  // 反馈
+  feedbackA Json?
+  feedbackB Json?
+
+  // 后续行动
+  continued Boolean?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("cotrials")
+}
