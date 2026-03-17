@@ -1,51 +1,32 @@
+@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 201 96% 32%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 201 96% 32%;
-    --radius: 0.75rem;
-  }
-
-  .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 201 96% 32%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 201 96% 32%;
+    /* 新中式奢华书院风 - 深色主题 */
+    --background: 30 5% 6%;
+    --foreground: 40 15% 90%;
+    --card: 30 5% 9%;
+    --card-foreground: 40 15% 90%;
+    --popover: 30 5% 9%;
+    --popover-foreground: 40 15% 90%;
+    --primary: 40 15% 90%;
+    --primary-foreground: 30 5% 8%;
+    --secondary: 30 5% 12%;
+    --secondary-foreground: 40 15% 90%;
+    --muted: 30 5% 14%;
+    --muted-foreground: 35 10% 60%;
+    --accent: 30 5% 12%;
+    --accent-foreground: 40 15% 90%;
+    --destructive: 0 45% 50%;
+    --destructive-foreground: 40 15% 90%;
+    --border: 35 8% 20%;
+    --input: 30 5% 15%;
+    --ring: 40 15% 80%;
+    --radius: 0.5rem;
   }
 }
 
@@ -53,10 +34,15 @@
   * {
     @apply border-border;
   }
+
   body {
     @apply bg-background text-foreground;
+    font-family: 'Noto Serif SC', 'Songti SC', 'SimSun', serif;
     font-feature-settings: "rlig" 1, "calt" 1;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
+
   html {
     scroll-behavior: smooth;
   }
@@ -75,7 +61,7 @@
   }
 }
 
-/* Custom Scrollbar */
+/* Custom Scrollbar - 暗色主题 */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -94,15 +80,15 @@
   background: hsl(var(--muted-foreground) / 0.5);
 }
 
-/* Selection Color */
+/* Selection */
 ::selection {
-  background: hsl(var(--primary) / 0.2);
-  color: hsl(var(--primary));
+  background: hsl(40 50% 50% / 0.3);
+  color: hsl(40 15% 95%);
 }
 
-/* Focus Visible */
+/* Focus */
 :focus-visible {
-  outline: 2px solid hsl(var(--ring));
+  outline: 2px solid hsl(var(--ring) / 0.5);
   outline-offset: 2px;
 }
 
@@ -116,4 +102,15 @@
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* 衬线字体 */
+.font-serif {
+  font-family: 'Noto Serif SC', 'Songti SC', 'SimSun', 'STSong', serif;
+  font-weight: 500;
+}
+
+/* 按钮悬浮光效 */
+button {
+  transition: all 0.3s cubic-bezier(0.22, 1, 0.36, 1);
 }
