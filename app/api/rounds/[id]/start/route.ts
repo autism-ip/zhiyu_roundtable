@@ -6,7 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
+import { auth } from '@/lib/auth';
 import { getRoundService } from '@/lib/round/round-service';
 import { getAuditLogger } from '@/lib/audit/logger';
 
@@ -22,7 +22,7 @@ export async function POST(
     const { id: roundId } = await params;
 
     // 验证认证
-    const session = await getServerSession();
+    const session = await auth();
     if (!session?.user) {
       return NextResponse.json({
         success: false,
@@ -33,9 +33,35 @@ export async function POST(
       }, { status: 401 });
     }
 
-    // 开始圆桌
+    // 获取圆桌信息验证是否为主持人
     const roundService = getRoundService();
-    const round = await roundService.startRound(roundId);
+    const round = await roundService.getRound(roundId);
+    if (!round) {
+      return NextResponse.json({
+        success: false,
+        error: {
+          code: 'NOT_FOUND',
+          message: '圆桌不存在',
+        },
+      }, { status: 404 });
+    }
+
+    // 验证是否为圆桌主持人
+    const isHost = round.participants?.some(
+      (p) => p.userId === session.user.id && p.role === 'host'
+    );
+    if (!isHost) {
+      return NextResponse.json({
+        success: false,
+        error: {
+          code: 'FORBIDDEN',
+          message: '只有主持人才能开始圆桌',
+        },
+      }, { status: 403 });
+    }
+
+    // 开始圆桌
+    const startedRound = await roundService.startRound(roundId);
 
     // 记录审计日志
     const auditLogger = getAuditLogger();
@@ -46,14 +72,14 @@ export async function POST(
       {
         after: {
           status: 'ongoing',
-          participantCount: round.participants?.length || 0,
+          participantCount: startedRound.participants?.length || 0,
         },
       }
     );
 
     return NextResponse.json({
       success: true,
-      data: round,
+      data: startedRound,
     });
   } catch (error: any) {
     console.error('开始圆桌失败:', error);

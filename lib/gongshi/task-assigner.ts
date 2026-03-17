@@ -6,7 +6,6 @@
  */
 
 import { getMinimaxClient, MinimaxClient } from '@/lib/ai/minimax-client';
-import type { Database } from '@/lib/supabase/types';
 import type { Debate, User } from '@/types';
 
 export interface TaskAssignerConfig {
@@ -168,7 +167,7 @@ export class TaskAssigner {
 争鸣层分析结果：
 - 健康度评分：${debate.analysis?.healthScore || 60}
 - 让步能力：${debate.analysis?.concessionAbility || 60}
-- 风险偏好：${debate.analysis?.riskAppetite || 50}
+- 风险偏好：${debate.analysis?.riskPreference || 50}
 - 用户A决策风格：${debate.analysis?.decisionStyle?.userA || 'analytical'}
 - 用户B决策风格：${debate.analysis?.decisionStyle?.userB || 'analytical'}
 - 关系建议：${debate.relationshipSuggestion || '同道'}
@@ -358,7 +357,7 @@ export class TaskAssigner {
     } else if (analysis.concessionAbility >= 70) {
       // 让步能力好 - 适合需要讨论的任务
       return 'co_write';
-    } else if (analysis.riskAppetite >= 70) {
+    } else if (analysis.riskPreference >= 70) {
       // 风险偏好高 - 可以尝试创新任务
       return 'co_demo';
     } else {
@@ -564,7 +563,7 @@ export class TaskAssigner {
     riskScore += (100 - debate.analysis.healthScore) * 0.3;
 
     // 风险承受能力风险
-    if (debate.analysis.riskAppetite < 40) {
+    if (debate.analysis.riskPreference < 40) {
       riskScore += 15;
     }
 

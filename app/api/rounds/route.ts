@@ -6,7 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
+import { auth } from '@/lib/auth';
 import { getRoundService } from '@/lib/round/round-service';
 import { getAuditLogger } from '@/lib/audit/logger';
 import { z } from 'zod';
@@ -91,7 +91,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     // 验证认证
-    const session = await getServerSession();
+    const session = await auth();
     if (!session?.user) {
       return NextResponse.json({
         success: false,
@@ -111,7 +111,10 @@ export async function POST(request: NextRequest) {
     // 创建圆桌
     const roundService = getRoundService();
     const round = await roundService.createRound({
-      ...validated,
+      topicId: validated.topicId,
+      name: validated.name,
+      description: validated.description,
+      maxAgents: validated.maxAgents,
       hostId: session.user.id,
     });
 

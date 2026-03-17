@@ -5,6 +5,9 @@
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
+/// <reference types="vitest" />
+import { describe, it, expect } from 'vitest';
+
 import '@testing-library/jest-dom';
 
 // Mock Supabase environment variables

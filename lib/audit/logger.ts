@@ -12,7 +12,7 @@ import type { PrismaClient, AuditLog as PrismaAuditLog } from '@prisma/client';
 // ============================================
 
 export type AuditAction =
-  | 'round.created' | 'round.joined' | 'round.left' | 'round.completed'
+  | 'round.created' | 'round.joined' | 'round.left' | 'round.completed' | 'round.started' | 'round.message.sent'
   | 'match.generated' | 'match.accepted' | 'match.declined'
   | 'debate.initiated' | 'debate.responded' | 'debate.completed'
   | 'cotrial.assigned' | 'cotrial.completed' | 'cotrial.rated';
@@ -155,7 +155,7 @@ export class AuditLogger {
    * 记录圆桌操作
    */
   async logRoundAction(
-    action: 'round.created' | 'round.joined' | 'round.left' | 'round.completed',
+    action: 'round.created' | 'round.joined' | 'round.left' | 'round.completed' | 'round.started',
     actor: AuditActor,
     roundId: string,
     context?: AuditContext,
@@ -302,7 +302,7 @@ export class AuditLogger {
       ...Object.keys(after || {}),
     ]);
 
-    for (const key of allKeys) {
+    for (const key of Array.from(allKeys)) {
       const beforeValue = before?.[key];
       const afterValue = after?.[key];
 

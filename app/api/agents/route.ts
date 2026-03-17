@@ -6,7 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
+import { auth } from '@/lib/auth';
 import { getAgentService } from '@/lib/agent/agent-service';
 import { z } from 'zod';
 
@@ -34,6 +34,18 @@ const listAgentsSchema = z.object({
 
 export async function GET(request: NextRequest) {
   try {
+    // 验证认证
+    const session = await auth();
+    if (!session?.user) {
+      return NextResponse.json({
+        success: false,
+        error: {
+          code: 'UNAUTHORIZED',
+          message: '请先登录',
+        },
+      }, { status: 401 });
+    }
+
     const searchParams = request.nextUrl.searchParams;
     const params = {
       isActive: searchParams.get('isActive') === 'true' ? true : searchParams.get('isActive') === 'false' ? false : undefined,
@@ -89,7 +101,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession();
+    const session = await auth();
     if (!session?.user) {
       return NextResponse.json({
         success: false,
@@ -115,7 +127,13 @@ export async function POST(request: NextRequest) {
     }
 
     const agentService = getAgentService();
-    const agent = await agentService.createAgent(validated);
+    const agent = await agentService.createAgent({
+      userId: validated.userId,
+      name: validated.name,
+      personality: validated.personality,
+      expertise: validated.expertise,
+      tone: validated.tone,
+    });
 
     return NextResponse.json({
       success: true,

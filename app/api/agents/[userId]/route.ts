@@ -6,7 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
+import { auth } from '@/lib/auth';
 import { getAgentService } from '@/lib/agent/agent-service';
 import { z } from 'zod';
 
@@ -31,6 +31,18 @@ export async function GET(
   { params }: { params: Promise<{ userId: string }> }
 ) {
   try {
+    // 验证认证
+    const session = await auth();
+    if (!session?.user) {
+      return NextResponse.json({
+        success: false,
+        error: {
+          code: 'UNAUTHORIZED',
+          message: '请先登录',
+        },
+      }, { status: 401 });
+    }
+
     const { userId } = await params;
 
     const agentService = getAgentService();
@@ -74,7 +86,7 @@ export async function PUT(
   try {
     const { userId } = await params;
 
-    const session = await getServerSession();
+    const session = await auth();
     if (!session?.user) {
       return NextResponse.json({
         success: false,
@@ -153,7 +165,7 @@ export async function DELETE(
   try {
     const { userId } = await params;
 
-    const session = await getServerSession();
+    const session = await auth();
     if (!session?.user) {
       return NextResponse.json({
         success: false,

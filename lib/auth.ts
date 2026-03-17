@@ -50,6 +50,7 @@ const SecondMeProvider = {
 
 // NextAuth 配置
 export const authOptions: NextAuthConfig = {
+  secret: process.env.NEXTAUTH_SECRET,
   adapter: PrismaAdapter(prisma),
   providers: [
     SecondMeProvider,

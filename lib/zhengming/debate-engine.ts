@@ -6,7 +6,6 @@
  */
 
 import { getMinimaxClient, MinimaxClient } from '@/lib/ai/minimax-client';
-import type { Database } from '@/lib/supabase/types';
 import type { Match, User } from '@/types';
 
 export interface DebateEngineConfig {

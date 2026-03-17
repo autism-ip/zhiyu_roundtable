@@ -6,7 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
+import { auth } from '@/lib/auth';
 import { getRoundService } from '@/lib/round/round-service';
 import { getAuditLogger } from '@/lib/audit/logger';
 import { z } from 'zod';
@@ -31,7 +31,7 @@ export async function POST(
     const { id: roundId } = await params;
 
     // 验证认证
-    const session = await getServerSession();
+    const session = await auth();
     if (!session?.user) {
       return NextResponse.json({
         success: false,
@@ -47,6 +47,17 @@ export async function POST(
 
     // 验证参数
     const validated = leaveRoundSchema.parse(body);
+
+    // 验证用户只能操作自己的账号 (防止 IDOR)
+    if (validated.userId !== session.user.id) {
+      return NextResponse.json({
+        success: false,
+        error: {
+          code: 'FORBIDDEN',
+          message: '只能操作自己的账号',
+        },
+      }, { status: 403 });
+    }
 
     // 离开圆桌
     const roundService = getRoundService();

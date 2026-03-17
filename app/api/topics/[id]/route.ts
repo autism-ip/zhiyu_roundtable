@@ -6,7 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
+import { auth } from '@/lib/auth';
 import { getTopicService } from '@/lib/topic/topic-service';
 import { z } from 'zod';
 
@@ -74,7 +74,7 @@ export async function PUT(
   try {
     const { id } = await params;
 
-    const session = await getServerSession();
+    const session = await auth();
     if (!session?.user) {
       return NextResponse.json({
         success: false,
@@ -140,7 +140,7 @@ export async function DELETE(
   try {
     const { id } = await params;
 
-    const session = await getServerSession();
+    const session = await auth();
     if (!session?.user) {
       return NextResponse.json({
         success: false,

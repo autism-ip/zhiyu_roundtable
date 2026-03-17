@@ -6,7 +6,6 @@
  */
 
 import { getMinimaxClient, MinimaxClient } from '@/lib/ai/minimax-client';
-import type { Database } from '@/lib/supabase/types';
 import type { Round, Message, User, Match } from '@/types';
 
 export interface CardGeneratorConfig {

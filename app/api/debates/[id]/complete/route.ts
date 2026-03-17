@@ -6,7 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
+import { auth } from '@/lib/auth';
 import { getDebateService } from '@/lib/debate/debate-service';
 import { getAuditLogger } from '@/lib/audit/logger';
 
@@ -22,7 +22,7 @@ export async function POST(
     const { id: debateId } = await params;
 
     // 验证认证
-    const session = await getServerSession();
+    const session = await auth();
     if (!session?.user) {
       return NextResponse.json({
         success: false,
@@ -39,13 +39,14 @@ export async function POST(
 
     // 记录审计日志
     const auditLogger = getAuditLogger();
+    const analysis = debate.analysis as { healthScore?: number } | null;
     await auditLogger.logDebateAction(
       'debate.completed',
       { type: 'user', id: session.user.id },
       debateId,
       {
         after: {
-          healthScore: debate.analysis?.healthScore,
+          healthScore: analysis?.healthScore,
           shouldConnect: debate.shouldConnect,
           relationshipSuggestion: debate.relationshipSuggestion,
         },

@@ -6,7 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
+import { auth } from '@/lib/auth';
 import { getDebateService } from '@/lib/debate/debate-service';
 import { getAuditLogger } from '@/lib/audit/logger';
 import { z } from 'zod';
@@ -31,7 +31,7 @@ export async function POST(
     const { id: matchId } = await params;
 
     // 验证认证
-    const session = await getServerSession();
+    const session = await auth();
     if (!session?.user) {
       return NextResponse.json({
         success: false,

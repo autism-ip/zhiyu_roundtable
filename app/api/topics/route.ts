@@ -6,7 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
+import { auth } from '@/lib/auth';
 import { getTopicService } from '@/lib/topic/topic-service';
 import { z } from 'zod';
 
@@ -93,7 +93,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession();
+    const session = await auth();
     if (!session?.user) {
       return NextResponse.json({
         success: false,
@@ -108,7 +108,14 @@ export async function POST(request: NextRequest) {
     const validated = createTopicSchema.parse(body);
 
     const topicService = getTopicService();
-    const topic = await topicService.createTopic(validated);
+    const topic = await topicService.createTopic({
+      title: validated.title,
+      description: validated.description,
+      category: validated.category,
+      tags: validated.tags,
+      zhihuId: validated.zhihuId,
+      zhihuUrl: validated.zhihuUrl,
+    });
 
     return NextResponse.json({
       success: true,

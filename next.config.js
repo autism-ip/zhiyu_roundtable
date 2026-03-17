@@ -1,8 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   experimental: {
-    serverComponentsExternalPackages: ['@prisma/client'],
+    // serverComponentsExternalPackages 已废弃，使用 serverExternalPackages
   },
+  serverExternalPackages: ['@prisma/client'],
   images: {
     remotePatterns: [
       {

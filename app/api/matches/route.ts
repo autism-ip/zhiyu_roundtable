@@ -6,7 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
+import { auth } from '@/lib/auth';
 import { getMatchService } from '@/lib/match/match-service';
 import { getAuditLogger } from '@/lib/audit/logger';
 import { z } from 'zod';

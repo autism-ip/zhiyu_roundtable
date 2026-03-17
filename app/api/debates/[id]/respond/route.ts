@@ -6,7 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
+import { auth } from '@/lib/auth';
 import { getDebateService } from '@/lib/debate/debate-service';
 import { getAuditLogger } from '@/lib/audit/logger';
 import { z } from 'zod';
@@ -33,7 +33,7 @@ export async function POST(
     const { id: debateId } = await params;
 
     // 验证认证
-    const session = await getServerSession();
+    const session = await auth();
     if (!session?.user) {
       return NextResponse.json({
         success: false,
@@ -49,6 +49,17 @@ export async function POST(
 
     // 验证参数
     const validated = respondSchema.parse(body);
+
+    // 验证用户只能操作自己的账号 (防止 IDOR)
+    if (validated.userId !== session.user.id) {
+      return NextResponse.json({
+        success: false,
+        error: {
+          code: 'FORBIDDEN',
+          message: '只能操作自己的账号',
+        },
+      }, { status: 403 });
+    }
 
     // 回答问题
     const debateService = getDebateService();

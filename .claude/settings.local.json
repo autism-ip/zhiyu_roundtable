@@ -28,7 +28,22 @@
       "Bash(ls:*)",
       "WebSearch",
       "mcp__Ref__ref_search_documentation",
-      "mcp__Ref__ref_read_url"
+      "mcp__Ref__ref_read_url",
+      "Bash(cd:*)",
+      "mcp__exa-web-search__web_search_exa",
+      "mcp__plugin_chrome-devtools-mcp_chrome-devtools__list_pages",
+      "mcp__plugin_chrome-devtools-mcp_chrome-devtools__new_page",
+      "mcp__plugin_chrome-devtools-mcp_chrome-devtools__take_snapshot",
+      "mcp__plugin_chrome-devtools-mcp_chrome-devtools__list_console_messages",
+      "mcp__plugin_chrome-devtools-mcp_chrome-devtools__list_network_requests",
+      "mcp__plugin_chrome-devtools-mcp_chrome-devtools__get_network_request",
+      "Bash(taskkill:*)",
+      "mcp__plugin_chrome-devtools-mcp_chrome-devtools__select_page",
+      "mcp__plugin_chrome-devtools-mcp_chrome-devtools__navigate_page",
+      "Bash(netstat:*)",
+      "Bash(rm:*)",
+      "mcp__plugin_chrome-devtools-mcp_chrome-devtools__click",
+      "Bash(where gh:*)"
     ]
   }
 }

@@ -6,7 +6,7 @@
  */
 
 import { getMinimaxClient, MinimaxClient } from '@/lib/ai/minimax-client';
-import type { PrismaClient, Cotrial, Debate } from '@prisma/client';
+import type { PrismaClient, Cotrial, Debate, Match } from '@prisma/client';
 
 // ============================================
 // 类型定义
@@ -39,7 +39,9 @@ export interface RateCotrialInput {
  * 扩展的 Cotrial 类型（包含关联数据）
  */
 type CotrialWithRelations = Cotrial & {
-  debate?: Debate;
+  debate?: Debate & {
+    match?: Match;
+  };
 };
 
 // ============================================

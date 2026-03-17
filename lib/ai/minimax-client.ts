@@ -51,14 +51,14 @@ export class MinimaxClient {
    * 聊天补全
    */
   async chatCompletion(
-    messages: OpenAI.Chat.ChatMessage[],
+    messages: any[],
     options?: {
       model?: string;
       temperature?: number;
       maxTokens?: number;
-      tools?: OpenAI.Chat.ChatTool[];
+      tools?: any[];
     }
-  ): Promise<OpenAI.Chat.ChatCompletion> {
+  ): Promise<any> {
     const response = await this.client.chat.completions.create({
       model: options?.model || this.config.model!,
       messages,
@@ -81,7 +81,7 @@ export class MinimaxClient {
       maxTokens?: number;
     }
   ): Promise<string> {
-    const messages: OpenAI.Chat.ChatMessage[] = [
+    const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },
     ];
@@ -101,7 +101,7 @@ export class MinimaxClient {
       maxTokens?: number;
     }
   ): Promise<T> {
-    const messages: OpenAI.Chat.ChatMessage[] = [
+    const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
       { role: 'system', content: systemPrompt + '\n\n请以 JSON 格式输出。' },
       { role: 'user', content: userPrompt },
     ];

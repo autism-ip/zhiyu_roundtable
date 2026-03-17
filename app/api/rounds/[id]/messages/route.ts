@@ -6,7 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
+import { auth } from '@/lib/auth';
 import { getRoundService } from '@/lib/round/round-service';
 import { getAuditLogger } from '@/lib/audit/logger';
 import { z } from 'zod';
@@ -24,7 +24,7 @@ const sendMessageSchema = z.object({
 
 const listMessagesSchema = z.object({
   limit: z.coerce.number().min(1).max(100).optional().catch(100),
-  before: z.string().optional().catch(undefined),
+  before: z.string().datetime().optional().catch(undefined),
 });
 
 // ============================================
@@ -52,7 +52,7 @@ export async function GET(
     const roundService = getRoundService();
     const messages = await roundService.getMessages(roundId, {
       limit: validated.limit,
-      before: validated.before,
+      before: validated.before ? new Date(validated.before) : undefined,
     });
 
     return NextResponse.json({
@@ -95,7 +95,7 @@ export async function POST(
     const { id: roundId } = await params;
 
     // 验证认证
-    const session = await getServerSession();
+    const session = await auth();
     if (!session?.user) {
       return NextResponse.json({
         success: false,
@@ -111,6 +111,17 @@ export async function POST(
 
     // 验证参数
     const validated = sendMessageSchema.parse(body);
+
+    // 验证用户只能操作自己的账号 (防止 IDOR)
+    if (validated.userId !== session.user.id) {
+      return NextResponse.json({
+        success: false,
+        error: {
+          code: 'FORBIDDEN',
+          message: '只能操作自己的账号',
+        },
+      }, { status: 403 });
+    }
 
     // 发送消息
     const roundService = getRoundService();
