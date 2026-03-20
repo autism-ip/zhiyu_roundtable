@@ -185,6 +185,94 @@ export async function PUT(
 }
 
 // ============================================
+// PATCH /api/users/[id] - 部分更新用户
+// ============================================
+
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+
+    const cookieStore = await cookies();
+    const userCookie = cookieStore.get('secondme_user');
+    if (!userCookie) {
+      return NextResponse.json({
+        success: false,
+        error: {
+          code: 'UNAUTHORIZED',
+          message: '请先登录',
+        },
+      }, { status: 401 });
+    }
+    let currentUser;
+    let userDbId;
+    try {
+      const parsedUser = JSON.parse(decodeURIComponent(userCookie.value));
+      // 优先使用数据库 UUID
+      userDbId = parsedUser.dbId;
+      currentUser = {
+        userId: userDbId || parsedUser.userId || parsedUser.id,
+        secondmeId: parsedUser.userId ? String(parsedUser.userId) : undefined,
+        ...parsedUser,
+      };
+    } catch {
+      return NextResponse.json({
+        success: false,
+        error: {
+          code: 'UNAUTHORIZED',
+          message: '无效的会话',
+        },
+      }, { status: 401 });
+    }
+
+    // 验证只能修改自己的资料
+    if (id !== currentUser.userId) {
+      return NextResponse.json({
+        success: false,
+        error: {
+          code: 'FORBIDDEN',
+          message: '只能修改自己的资料',
+        },
+      }, { status: 403 });
+    }
+
+    const body = await request.json();
+    const validated = updateUserSchema.parse(body);
+
+    const userService = getUserService();
+    const user = await userService.updateUser(id, validated);
+
+    return NextResponse.json({
+      success: true,
+      data: user,
+    });
+  } catch (error: any) {
+    console.error('部分更新用户失败:', error);
+
+    if (error.name === 'ZodError') {
+      return NextResponse.json({
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: '参数验证失败',
+          details: error.errors,
+        },
+      }, { status: 400 });
+    }
+
+    return NextResponse.json({
+      success: false,
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: '部分更新用户失败',
+      },
+    }, { status: 500 });
+  }
+}
+
+// ============================================
 // DELETE /api/users/[id] - 删除用户
 // ============================================
 
