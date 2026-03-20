@@ -6,9 +6,38 @@
  */
 
 /// <reference types="vitest" />
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll, afterEach } from 'vitest';
 
 import '@testing-library/jest-dom';
+
+// ===========================================
+// Mock localStorage for jsdom environment
+// ===========================================
+
+const localStorageMock = (() => {
+  let store: Record<string, string> = {};
+  return {
+    getItem: (key: string): string | null => store[key] || null,
+    setItem: (key: string, value: string): void => { store[key] = value; },
+    removeItem: (key: string): void => { delete store[key]; },
+    clear: (): void => { store = {}; },
+    get length(): number { return Object.keys(store).length; },
+    key: (index: number): string | null => Object.keys(store)[index] || null,
+  };
+})();
+
+// Mock localStorage in all test environments
+beforeAll(() => {
+  Object.defineProperty(global, 'localStorage', {
+    value: localStorageMock,
+    writable: true,
+    configurable: true,
+  });
+});
+
+afterEach(() => {
+  localStorageMock.clear();
+});
 
 // Mock Supabase environment variables
 process.env.NEXT_PUBLIC_SUPABASE_URL = 'http://localhost:54321';

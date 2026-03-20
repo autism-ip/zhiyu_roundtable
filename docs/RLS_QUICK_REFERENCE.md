@@ -1,13 +1,15 @@
 # RLS 快速参考指南
 
+> **关联**：本文档是 RLS 策略的快速参考，详细定义请参阅 [RLS_POLICIES.md](./RLS_POLICIES.md)，与 [CLAUDE.md](../CLAUDE.md) 中的 Supabase 数据层设计对应
+
 ## 状态总览
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  RLS 状态: ✅ 已启用                                        │
 │  表数量: 11                                                 │
-│  策略总数: 26                                               │
-│  最后更新: 2026-03-15                                      │
+│  策略总数: 44                                               │
+│  最后更新: 2026-03-20                                      │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -15,15 +17,15 @@
 
 | 表名 | RLS | 策略数 | 访问级别 |
 |------|-----|--------|----------|
-| audit_logs | ✅ | 1 | 用户只读自己 |
-| agents | ✅ | 2 | 用户私有 |
-| cotrials | ✅ | 1 | 匹配双方只读 |
-| debates | ✅ | 1 | 匹配双方只读 |
-| matches | ✅ | 1 | 匹配双方只读 |
-| messages | ✅ | 1 | 参与者只读 |
-| round_participants | ✅ | 1 | 参与者只读 |
-| rounds | ✅ | 1 | 公开只读 |
-| topics | ✅ | 1 | 公开只读 |
+| audit_logs | ✅ | 2 | 用户只读 + Service INSERT |
+| agents | ✅ | 4 | 用户私有 + INSERT/DELETE |
+| cotrials | ✅ | 3 | 匹配双方读写 + Service INSERT |
+| debates | ✅ | 3 | 匹配双方读写 + Service INSERT |
+| matches | ✅ | 3 | 匹配双方读写 + Service INSERT |
+| messages | ✅ | 4 | 参与者读写 |
+| round_participants | ✅ | 4 | 参与者读写 |
+| rounds | ✅ | 4 | 认证用户管理 |
+| topics | ✅ | 4 | 认证用户管理 |
 | users | ✅ | 3 | 用户私有 |
 
 ## 常用查询
@@ -82,18 +84,41 @@ UPDATE: auth.uid() = id
 
 ### agents 表
 ```
-SELECT: 用户的 agents.user_id = auth.uid()
-UPDATE: 用户的 agents.user_id = auth.uid()
+SELECT: agents.user_id = auth.uid()
+INSERT: agents.user_id = auth.uid()
+UPDATE: agents.user_id = auth.uid()
+DELETE: agents.user_id = auth.uid()
 ```
 
 ### matches 表
 ```
 SELECT: user_a_id = auth.uid() OR user_b_id = auth.uid()
+INSERT: true (Service role)
+UPDATE: user_a_id = auth.uid() OR user_b_id = auth.uid()
 ```
 
 ### topics/rounds 表
 ```
 SELECT: status = 'active' (公开访问)
+INSERT: auth.role() = 'authenticated'
+UPDATE: auth.role() = 'authenticated'
+DELETE: auth.role() = 'authenticated'
+```
+
+### round_participants 表
+```
+SELECT: user_id = auth.uid()
+INSERT: auth.role() = 'authenticated'
+UPDATE: user_id = auth.uid()
+DELETE: user_id = auth.uid()
+```
+
+### messages 表
+```
+SELECT: round_participants.user_id = auth.uid()
+INSERT: round_participants.user_id = auth.uid()
+UPDATE: agent.owner = auth.uid()
+DELETE: agent.owner = auth.uid()
 ```
 
 ## 故障排除
@@ -153,6 +178,7 @@ CREATE INDEX idx_participants_round ON round_participants(round_id);
 |------|------|------|
 | 2026-03-15 | 初始创建 | 26 个策略，覆盖 11 个表 |
 | 2026-03-15 | 启用 RLS | 所有表 RLS 已启用 |
+| 2026-03-20 | 新增 18 个策略 | 补全 INSERT/UPDATE/DELETE，策略总数 44 |
 
 ---
 

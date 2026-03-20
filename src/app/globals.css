@@ -1,0 +1,314 @@
+/**
+ * 知遇圆桌 - 全局样式
+ * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;500;600;700&family=Source+Sans+3:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================
+ * Tailwind Container Class Fix
+ * 当开发模式下 Tailwind 没有正确编译时，手动添加 container 类
+ * ============================================ */
+
+/* ============================================
+ * Font Variables
+ * ============================================ */
+:root {
+  --font-sans: "Source Sans 3", "Noto Sans SC", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-serif: "Noto Serif SC", "Songti SC", "SimSun", serif;
+  --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, "Courier New", monospace;
+}
+
+.container {
+  width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+
+@media (min-width: 640px) {
+  .container {
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .container {
+    padding-left: 2rem;
+    padding-right: 2rem;
+  }
+}
+
+@media (min-width: 1400px) {
+  .container {
+    max-width: 1400px;
+  }
+}
+
+@layer base {
+  :root {
+    /* ============================================
+     * 墨韵层次 (Ink Levels) - 主文字色系
+     * OKLCH → HSL 转换 (保持视觉一致性)
+     * ============================================ */
+    --ink: 40 15% 92%;           /* 暖白 - 主文字 */
+    --ink-light: 40 12% 85%;      /* 次文字 */
+    --ink-muted: 40 8% 60%;      /* 辅助文字 */
+
+    /* ============================================
+     * 墨色层次 (Paper Levels) - 背景色系
+     * ============================================ */
+    --paper: 30 5% 15%;          /* 卡片背景 */
+    --fabric: 30 5% 12%;          /* 页面背景 */
+    --deep: 30 5% 8%;             /* 深色区块 */
+
+    /* ============================================
+     * 金镶 (Gold Accents)
+     * ============================================ */
+    --gold: 45 80% 65%;           /* 金色主色 */
+    --gold-muted: 45 60% 55%;     /* 柔金 */
+    --gold-glow: 45 80% 65% / 0.3; /* 金色光晕 */
+
+    /* ============================================
+     * 意境色 (Layer Colors) - 四层主题色
+     * ============================================ */
+    --daiqing: 195 45% 50%;        /* 黛青 - 伯乐层 */
+    --daiqing-muted: 195 45% 50% / 0.7;
+    --zhuhong: 15 70% 55%;         /* 朱红 - 争鸣层 */
+    --zhuhong-muted: 15 70% 55% / 0.7;
+    --jiangzi: 330 30% 45%;        /* 酱紫 - 共试层 */
+    --jiangzi-muted: 330 30% 45% / 0.7;
+
+    /* ============================================
+     * 功能色 (Functional Colors)
+     * ============================================ */
+    --success: 145 55% 50%;
+    --success-muted: 145 55% 50% / 0.7;
+    --warning: 45 85% 60%;
+    --warning-muted: 45 85% 60% / 0.7;
+    --error: 15 75% 50%;
+    --error-muted: 15 75% 50% / 0.7;
+
+    /* ============================================
+     * 语义映射 (Semantic Mappings)
+     * ============================================ */
+    --background: var(--fabric);
+    --foreground: var(--ink);
+    --card: var(--paper);
+    --card-foreground: var(--ink);
+    --popover: var(--paper);
+    --popover-foreground: var(--ink);
+    --primary: var(--gold);
+    --primary-foreground: var(--deep);
+    --secondary: var(--paper);
+    --secondary-foreground: var(--ink-light);
+    --muted: var(--ink-muted);
+    --muted-foreground: var(--ink-muted);
+    --accent: var(--gold-muted);
+    --accent-foreground: var(--deep);
+    --destructive: var(--error);
+    --destructive-foreground: var(--ink);
+    --border: 30 5% 25%;
+    --input: 30 5% 18%;
+    --ring: var(--gold);
+    --radius: 0.5rem;
+
+    /* ============================================
+     * 间距 Token (Spacing)
+     * ============================================ */
+    --space-1: 0.25rem;
+    --space-2: 0.5rem;
+    --space-3: 0.75rem;
+    --space-4: 1rem;
+    --space-5: 1.25rem;
+    --space-6: 1.5rem;
+    --space-8: 2rem;
+    --space-10: 2.5rem;
+    --space-12: 3rem;
+    --space-16: 4rem;
+    --space-20: 5rem;
+    --space-24: 6rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-sans), 'Source Sans 3', 'Noto Sans SC', sans-serif;
+    font-feature-settings: "rlig" 1, "calt" 1;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  /* 衬线字体 - 用于标题 */
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Noto Serif SC', 'Songti SC', 'SimSun', serif;
+    font-weight: 600;
+  }
+
+  /* 等宽字体 */
+  code, pre, kbd {
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* 金色渐变文字 */
+  .text-gold-gradient {
+    background: linear-gradient(135deg, var(--gold) 0%, var(--gold-muted) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* 发光效果 */
+  .glow-gold {
+    box-shadow: 0 0 20px var(--gold-glow);
+  }
+
+  /* 层级颜色 */
+  .text-daiqing { color: var(--daiqing); }
+  .text-zhuhong { color: var(--zhuhong); }
+  .text-jiangzi { color: var(--jiangzi); }
+
+  .bg-daiqing { background-color: var(--daiqing); }
+  .bg-zhuhong { background-color: var(--zhuhong); }
+  .bg-jiangzi { background-color: var(--jiangzi); }
+
+  .border-daiqing { border-color: var(--daiqing); }
+  .border-zhuhong { border-color: var(--zhuhong); }
+  .border-jiangzi { border-color: var(--jiangzi); }
+}
+
+/* ============================================
+ * Custom Scrollbar - 墨色主题
+ * ============================================ */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--fabric);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--ink-muted);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--ink-light);
+}
+
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--ink-muted) var(--fabric);
+}
+
+/* ============================================
+ * Selection - 金色选中
+ * ============================================ */
+::selection {
+  background: var(--gold-glow);
+  color: var(--ink);
+}
+
+/* ============================================
+ * Focus - 金色焦点环
+ * ============================================ */
+:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+/* ============================================
+ * Reduced Motion
+ * ============================================ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ============================================
+ * 按钮悬浮光效
+ * ============================================ */
+button {
+  transition: all 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* ============================================
+ * 卡片悬浮效果
+ * ============================================ */
+.card-hover {
+  transition: all 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 30px hsl(0 0% 0% / 0.3);
+}
+
+/* ============================================
+ * 顶部光条装饰
+ * ============================================ */
+.accent-bar {
+  position: relative;
+}
+
+.accent-bar::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent 0%, var(--accent) 50%, transparent 100%);
+  opacity: 0.8;
+}
+
+.accent-bar-daiqing::before {
+  background: linear-gradient(90deg, transparent 0%, var(--daiqing) 50%, transparent 100%);
+}
+
+.accent-bar-zhuhong::before {
+  background: linear-gradient(90deg, transparent 0%, var(--zhuhong) 50%, transparent 100%);
+}
+
+.accent-bar-jiangzi::before {
+  background: linear-gradient(90deg, transparent 0%, var(--jiangzi) 50%, transparent 100%);
+}

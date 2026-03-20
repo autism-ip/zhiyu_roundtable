@@ -1,16 +1,891 @@
-# 知遇圆桌 - BDD 架构文档
+# 知遇圆桌 - A2A 黑客松架构文档
 
 > **架构原则**: BDD (行为驱动开发) + TDD (测试驱动实现) + 审计追踪
 > **数据层**: Supabase (PostgreSQL + Realtime)
+> **核心协议**: A2A (Google Agent-to-Agent) + MCP (Anthropic Model Context Protocol)
+> **身份认证**: SecondMe OAuth
+> **内容生态**: 知乎
 > **核心目标**: 可验证、可审计、高可靠的高价值连接系统
 
 ---
 
-## 1. BDD 架构设计
+## 0. 整体架构 (2026 黑客 松版)
 
-### 1.1 核心行为场景 (Gherkin)
+> **开发模式**: 多Agent并行研究模式 - 当需要研究多个独立技术主题时，并行启动Explore agent，每个负责一个主题，减少主agent上下文消耗
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           用户入口层                                      │
+│  ┌─────────────────┐    ┌─────────────────────────────────────────────┐│
+│  │  人类模式       │    │  Agent 模式                                      ││
+│  │  - 查看附近Agent │    │  - 设定目标 → Agent自动匹配/对话               ││
+│  │  - 手动选择对话  │    │  - 持续自主行动 + 人类随时干预                  ││
+│  │  - 自主操控Agent │    │  - 行为日志可追溯                               ││
+│  └─────────────────┘    └─────────────────────────────────────────────┘│
+└─────────────────────────────────────────────────────────────────────────┘
+                                    ↓
+┌─────────────────────────────────────────────────────────────────────────┐
+│                          伯乐层 (发现)                                    │
+│  ┌─────────────────────────────────────────────────────────────────────┐│
+│  │  圆桌讨论 → AI分析 → 生成知遇卡 (互补性评分 + 关系类型 + 匹配理由)    ││
+│  │  - 数据源: 知乎热点问题 / 自定义问题 / Agent生成问题                   ││
+│  │  - 参与者: N人圆桌 (动态加入/退出)                                     ││
+│  │  - 匹配逻辑: 互补性 + 未来生成性 + 关系类型预测                        ││
+│  └─────────────────────────────────────────────────────────────────────┘│
+└─────────────────────────────────────────────────────────────────────────┘
+                                    ↓
+┌─────────────────────────────────────────────────────────────────────────┐
+│                          争鸣层 (验证)                                    │
+│  ┌─────────────────────────────────────────────────────────────────────┐│
+│  │  结构化多轮对练 → 风险评估 → 关系建议                                 ││
+│  │  - 形式: N人圆桌讨论 (非一对一)                                       ││
+│  │  - 问题: 由争鸣结果决定的问题数量与复杂度                              ││
+│  │  - 输出: 关系类型建议 + 风险领域 + 下一步行动                         ││
+│  └─────────────────────────────────────────────────────────────────────┘│
+└─────────────────────────────────────────────────────────────────────────┘
+                                    ↓
+┌─────────────────────────────────────────────────────────────────────────┐
+│                          共试层 (落地)                                    │
+│  ┌─────────────────────────────────────────────────────────────────────┐│
+│  │  实时剧情模拟 → 人类干预 → 反馈总结                                   ││
+│  │  - 形式: Agent模拟剧情走向，关键时刻人类选择                          ││
+│  │  - 干预方式: 旁观 / 提示 / 中断                                       ││
+│  │  - 模拟时长: 由争鸣层结果决定                                         ││
+│  │  - 输出: 模拟结果报告 + 行为数据                                      ││
+│  └─────────────────────────────────────────────────────────────────────┘│
+└─────────────────────────────────────────────────────────────────────────┘
+                                    ↓
+┌─────────────────────────────────────────────────────────────────────────┐
+│                          辅助功能                                         │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐    │
+│  │ 回忆功能  │ │ 信誉系统  │ │ 安全控制 │ │ 社区广场 │ │ 成长体系 │    │
+│  │ 时间线形式│ │ 能力标签  │ │ 权限分级 │ │ 信息流   │ │ 积分成就 │    │
+│  └──────────┘ └──────────┘ └──────────┘ └──────────┘ └──────────┘    │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 1. 入口层设计
+
+### 1.1 Agent 模式开关
+
+```typescript
+interface AgentMode {
+  mode: 'human' | 'agent';
+  agentId?: string;
+  autoAction: boolean;      // Agent是否自动行动
+  humanIntervention: boolean; // 人类是否可随时干预
+  behaviorLogging: boolean;  // 是否记录行为日志
+}
+
+// 人类模式
+{
+  mode: 'human',
+  autoAction: false,
+  humanIntervention: false,
+}
+
+// Agent模式 - 完全自主
+{
+  mode: 'agent',
+  agentId: 'agent-123',
+  autoAction: true,
+  humanIntervention: false,  // 关闭干预，仅事后查看
+}
+
+// Agent模式 - 可干预
+{
+  mode: 'agent',
+  agentId: 'agent-123',
+  autoAction: true,
+  humanIntervention: true,  // 允许随时干预
+}
+```
+
+### 1.2 A2A 协议集成
+
+#### 1.2.1 Agent Card 定义
+
+```typescript
+// Agent Card 部署路径: /.well-known/agent-card.json
+interface AgentCard {
+  name: string;                    // 人类可读名称
+  description: string;             // Agent 功能描述
+  url: string;                     // A2A 端点 URL (必须 HTTPS)
+  version: string;                  // 语义版本 (如 "1.0.0")
+  provider?: {                      // 提供者信息
+    organization: string;
+    contactEmail?: string;
+  };
+  capabilities: {
+    streaming: boolean;             // 是否支持 SSE 流式
+    pushNotifications: boolean;    // 是否支持推送
+  };
+  skills: Array<{
+    id: string;
+    name: string;
+    description: string;
+    inputModes: string[];
+    outputModes: string[];
+  }>;
+  defaultInputModes: string[];
+  defaultOutputModes: string[];
+}
+```
+
+#### 1.2.2 A2A Server 实现
+
+```typescript
+// app/api/a2a/route.ts
+import { AgentExecutor, DefaultRequestHandler, InMemoryTaskStore } from '@a2a-js/sdk';
+
+class ZhiyuAgentExecutor implements AgentExecutor {
+  async executeTask(context: RequestContext, task: Task): Promise<void> {
+    const userMessage = this.extractText(task.message);
+    const result = await this.analyzeRound(userMessage);
+    await context.sendMessage({
+      role: 'agent',
+      parts: [{ type: 'text', text: JSON.stringify(result) }],
+    });
+  }
+}
+
+const taskStore = new InMemoryTaskStore();
+const agentExecutor = new ZhiyuAgentExecutor();
+
+// JSON-RPC 端点
+export async function POST(req: NextRequest) {
+  const body = await req.json();
+  // 处理 A2A 请求
+}
+
+// Agent Card 端点
+export async function GET() {
+  return NextResponse.json(agentCard);
+}
+```
+
+#### 1.2.3 A2A Client 实现
+
+```typescript
+// lib/a2a/client.ts
+import { ClientFactory } from '@a2a-js/sdk';
+
+class A2AClientManager {
+  private clients = new Map<string, any>();
+
+  async getClient(agentUrl: string) {
+    if (!this.clients.has(agentUrl)) {
+      const factory = new ClientFactory();
+      const client = await factory.createFromUrl(agentUrl);
+      this.clients.set(agentUrl, client);
+    }
+    return this.clients.get(agentUrl);
+  }
+
+  async sendMessage(agentUrl: string, content: string) {
+    const client = await this.getClient(agentUrl);
+    const response = await client.sendMessage({
+      messageId: crypto.randomUUID(),
+      message: { role: 'user', parts: [{ type: 'text', text: content }] },
+    });
+    return this.extractResponse(response);
+  }
+
+  // 流式响应
+  async *streamMessage(agentUrl: string, content: string) {
+    const client = await this.getClient(agentUrl);
+    const stream = await client.sendMessageStreaming({
+      messageId: crypto.randomUUID(),
+      message: { role: 'user', parts: [{ type: 'text', text: content }] },
+    });
+    for await (const event of stream) {
+      if (event.message?.parts) {
+        yield event.message.parts.map(p => p.text).join('');
+      }
+    }
+  }
+}
+```
+
+#### 1.2.4 通信模式选择
+
+| 模式 | 适用场景 | SDK 方法 |
+|------|----------|----------|
+| **Message/send** | 单次请求-响应 | `client.sendMessage()` |
+| **Task/send** | 长时间任务，可追踪状态 | `client.createTask()` |
+| **Streaming** | 需要实时反馈 | `client.sendMessageStreaming()` |
+
+#### 1.2.5 常见错误与解决方案
+
+| 错误 | 原因 | 解决方案 |
+|------|------|----------|
+| `401 Unauthorized` | 缺少 securitySchemes 或认证信息错误 | 检查 `Authorization` 头 |
+| `404 Not Found` | Agent Card 路径错误 | 确认 `/.well-known/agent-card.json` 可访问 |
+| `streaming not supported` | Agent 不支持 SSE | 检查 `capabilities.streaming` |
+
+```typescript
+// A2A Client 实现
+import { AgentCard, A2AClient } from '@anthropic-ai/a2a-protocol';
+
+const agentCard: AgentCard = {
+  name: '知遇Agent',
+  version: '1.0',
+  capabilities: {
+    streaming: true,
+    pushNotifications: true,
+  },
+  skills: ['圆桌讨论', '匹配分析', '对练模拟'],
+};
+```
+
+---
+
+## 2. 伯乐层 (发现层)
+
+### 2.1 圆桌讨论
+
+- **问题来源**: 知乎热点问题 / 自定义问题 / Agent生成问题
+- **参与形式**: N人圆桌，支持动态加入/退出
+- **匹配时机**: 讨论时长超过5分钟触发分析
+
+#### 2.1.1 多Agent讨论系统架构
+
+**推荐框架**: **AutoGen** (Microsoft) + **Swarms**
+
+| 模式 | 适用场景 |
+|------|----------|
+| **RoundTableDiscussion** | 开放圆桌讨论 |
+| **ExpertPanelDiscussion** | 多专家+主持人 |
+| **OneOnOneDebate** | 一对一辩论 |
+
+```typescript
+// 圆桌讨论系统架构
+class RoundTableDiscussion {
+  private agents: PersonaAgent[];
+  private topic: Topic;
+  private maxRounds: number = 10;
+
+  async start() {
+    // 1. 初始化Persona Agents
+    await Promise.all(this.agents.map(a => a.loadPersona()));
+
+    // 2. 圆桌对话循环
+    for (let round = 0; round < this.maxRounds; round++) {
+      for (const agent of this.agents) {
+        const response = await agent.respond(this.getContext());
+        await this.record(response);
+
+        // 检查是否触发分析时机
+        if (this.shouldAnalyze()) {
+          await this.triggerBoleAnalysis();
+        }
+      }
+    }
+  }
+}
+```
+
+#### 2.1.2 实时对话实现
+
+**技术选型**: Supabase Realtime + SSE流式响应
+
+```typescript
+// 前端: 使用Supabase Realtime订阅
+const channel = supabase
+  .channel(`round:${roundId}`)
+  .on(
+    'postgres_changes',
+    { event: 'INSERT', schema: 'public', table: 'messages', filter: `round_id=eq.${roundId}` },
+    (payload) => appendMessage(payload.new)
+  )
+  .subscribe()
+
+// 后端流式响应
+export async function POST(req: Request) {
+  const stream = new ReadableStream({
+    async start(controller) {
+      const encoder = new TextEncoder()
+      const response = await fetch('https://api.minimax.chat/v1/text/chatcompletion_v2', {
+        method: 'POST',
+        body: JSON.stringify({ model: 'abab6.5s-chat', messages, stream: true })
+      })
+      for await (const chunk of response.body) {
+        controller.enqueue(encoder.encode(chunk))
+      }
+      controller.close()
+    }
+  })
+  return new Response(stream, { headers: { 'Content-Type': 'text/event-stream' } })
+}
+```
+
+#### 2.1.3 角色分配算法
+
+```typescript
+interface AgentCapability {
+  agentId: string
+  strengths: string[]      // 擅长领域
+  personality: string      // 性格特征
+  expertise: number[]     // 专业评分
+}
+
+function assignRoles(candidates: AgentCapability[], topic: Topic): RoleAssignment[] {
+  // 1. 计算topic与agent的匹配度
+  const scores = candidates.map(agent => ({
+    agentId: agent.agentId,
+    score: calculateMatchScore(agent, topic)
+  }))
+  // 2. 选择最合适的agent for each role
+  // 3. 处理冲突
+  return resolveConflicts(scores, availableRoles)
+}
+```
+
+### 2.2 知遇卡生成
+
+```typescript
+interface MatchCard {
+  id: string;
+  roundId: string;
+  userAId: string;
+  userBId: string;
+  complementarityScore: number;   // 互补性评分 (0-100)
+  futureGenerativity: number;    // 未来生成性 (0-100)
+  overallScore: number;           // 综合评分
+  relationshipType: RelationshipType;
+  matchReason: string;
+  complementarityAreas: string[]; // 互补领域
+  insights: Insight[];
+  status: MatchStatus;
+}
+
+type RelationshipType =
+  | 'peer'       // 同伴
+  | 'cofounder'  // 联合创始人
+  | 'opponent'   // 对手
+  | 'advisor'    // 导师
+  | 'mentee'     // 学徒
+  | 'none';      // 无匹配
+
+type MatchStatus = 'pending' | 'accepted' | 'declined' | 'expired';
+```
+
+#### 2.2.1 互补性评分算法
+
+**核心思路**: 差异产生价值，而非相似性
+
+```typescript
+interface ComplementarityInput {
+  userA: {
+    expertise: string[];
+    personality: Personality;
+    collaborationStyle: string;
+    goals: string[];
+  };
+  userB: Personality & { expertise: string[]; goals: string[] };
+}
+
+function calculateComplementarity(input: ComplementarityInput): number {
+  // 1. 专业互补性：领域不重叠 = 高互补
+  const expertiseOverlap = intersection(input.userA.expertise, input.userB.expertise).length;
+  const expertiseScore = 1 - (expertiseOverlap / Math.max(
+    input.userA.expertise.length,
+    input.userB.expertise.length
+  ));
+
+  // 2. 性格互补性：MBTI/Big Five 互补维度
+  const personalityScore = calculatePersonalityComplementarity(
+    input.userA.personality,
+    input.userB.personality
+  );
+
+  // 3. 目标协同性：目标有交集但不完全相同
+  const goalAlignment = calculateGoalAlignment(input.userA.goals, input.userB.goals);
+
+  // 加权综合
+  return expertiseScore * 0.4 + personalityScore * 0.35 + goalAlignment * 0.25;
+}
+```
+
+#### 2.2.2 未来生成性评估
+
+```typescript
+interface FutureGenerativityInput {
+  userA: { expertise: string[]; connections: string[]; creativityScore: number };
+  userB: { expertise: string[]; connections: string[]; creativityScore: number };
+  jointDiscussion: Message[];
+}
+
+function evaluateFutureGenerativity(input: FutureGenerativityInput): number {
+  // 1. 知识网络扩展潜力
+  const networkExpansion = calculateNetworkExpansion(input.userA.connections, input.userB.connections);
+
+  // 2. 创意产出质量
+  const creativeOutput = analyzeCreativeQuality(input.jointDiscussion);
+
+  // 3. 协作创造力兼容性
+  const creativityCompatibility = Math.abs(input.userA.creativityScore - input.userB.creativityScore) < 2
+    ? 1.0
+    : 0.5;
+
+  return (networkExpansion * 0.4 + creativeOutput * 0.4 + creativityCompatibility * 0.2);
+}
+```
+
+#### 2.2.3 关系类型预测
+
+| 类型 | 预测特征 |
+|------|----------|
+| **peer** | 相似专业 + 相似经验 + 平等目标 (expertise相似度>0.7, 经验等级差<2) |
+| **cofounder** | 互补技能 + 共同愿景 + 风险承担意愿 |
+| **opponent** | 相似领域 + 冲突目标 + 竞争风格 |
+| **advisor** | 经验值>另一方2倍 + 指导意愿 |
+| **mentee** | 经验少 + 主动提问多 + 成长心态 |
+
+#### 2.2.4 推荐系统评估指标
+
+```typescript
+interface EvaluationMetrics {
+  precisionAtK: (predictions: Match[], groundTruth: Match[], k: number) => number;
+  recallAtK: (predictions: Match[], groundTruth: Match[], k: number) => number;
+  f1Score: (predictions: Match[], groundTruth: Match[], k: number) => number;
+  auc: (scores: number[], labels: boolean[]) => number;
+}
+```
+
+---
+
+## 3. 争鸣层 (验证层)
+
+### 3.1 多轮圆桌讨论
+
+- **人数**: N人圆桌，非一对一
+- **问题数量**: 由匹配质量决定 (2-5个)
+- **复杂度**: 由争鸣结果动态调整
+
+#### 3.1.1 角色扮演AI实现
+
+```typescript
+interface Persona {
+  // 核心特征
+  personality: {
+    traits: string[];           // Big Five: openness, conscientiousness...
+    values: string[];           // 核心价值观
+    beliefs: string[];         // 信念体系
+  };
+
+  // 行为模式
+  communication: {
+    tone: 'formal' | 'casual' | 'aggressive' | 'diplomatic';
+    style: 'analytical' | 'emotional' | 'pragmatic' | 'creative';
+    verbalTics?: string[];     // 口头禅
+  };
+
+  // 专业背景
+  expertise: string[];
+  background: string;
+
+  // 观点倾向
+  perspectives: {
+    topic: string;
+    stance: 'support' | 'oppose' | 'neutral';
+    reasoning: string;
+  }[];
+}
+```
+
+#### 3.1.2 观点分析Prompt
+
+```markdown
+## 任务: 观点分析
+
+### 输入
+对话文本: {discussion_text}
+
+### 分析要求
+1. 立场识别: 每个参与者的核心观点是什么？
+2. 论据提取: 支持/反对的核心论据
+3. 逻辑结构: 论证链条是否有效
+4. 情感倾向: 积极/消极/中性
+5. 互补领域: 不同观点之间的互补点
+
+### 输出格式 (JSON)
+{
+  "participants": [{
+    "id": "user_A",
+    "mainPosition": "string",
+    "keyArguments": ["string"],
+    "reasoningQuality": "high|medium|low"
+  }],
+  "complementarityAreas": ["string"],
+  "consensusPoints": ["string"]
+}
+```
+
+#### 3.1.3 风险评估Prompt
+
+```markdown
+## 任务: 合作关系风险评估
+
+### 评估维度
+1. 目标一致性 (0-100)
+2. 价值观兼容性 (0-100)
+3. 能力互补性 (0-100)
+4. 沟通模式兼容性 (0-100)
+
+### 输出
+{
+  "overallCompatibility": number,
+  "riskAreas": [{
+    "area": "string",
+    "severity": "high|medium|low",
+    "description": "string",
+    "mitigation": "string"
+  }],
+  "relationshipSuggestion": "peer|cofounder|opponent|advisor|mentee|none",
+  "nextSteps": ["string"]
+}
+```
+
+### 3.2 关系验证输出
+
+```typescript
+interface DebateResult {
+  id: string;
+  matchId: string;
+  relationshipSuggestion: RelationshipType;
+  shouldConnect: boolean;
+  riskAreas: string[];
+  nextSteps: string[];
+  analysis: {
+    alignment: number;
+    conflictPotential: number;
+    collaborationScore: number;
+  };
+}
+```
+
+---
+
+## 4. 共试层 (落地层)
+
+### 4.1 实时剧情模拟
+
+#### 4.1.1 LLM + Behavior Tree 混合架构
+
+```
+┌─────────────────────┐
+│   LLM 叙事引擎      │  ← 说什么（内容生成）
+│   场景描述/对话生成 │
+└─────────────────────┘
+         ↓
+┌─────────────────────┐
+│  BT 行为控制器       │  ← 做什么（行为选择）
+│  状态转换/动作决策   │
+└─────────────────────┘
+```
+
+**核心思路**: LLM负责创意生成，BT负责行为控制，两者互补
+
+#### 4.1.2 状态机设计
+
+```typescript
+interface SimulationEngine {
+  state: 'idle' | 'running' | 'paused' | 'completed';
+
+  initialize(config: SimulationConfig): Promise<void>;
+  start(): Promise<void>;
+  pause(): void;
+  resume(): void;
+  stop(): Promise<SimulationResult>;
+
+  intervene(level: InterventionLevel, action: InterventionAction): void;
+  evaluate(): Promise<SimulationMetrics>;
+}
+
+interface SimulationConfig {
+  duration: number;           // 模拟时长 (争鸣层决定)
+  scenario: string;          // 初始场景设定
+  interventionLevels: InterventionLevel[];
+  metrics: Metric[];
+}
+
+type InterventionLevel = 'observe' | 'suggest' | 'interrupt';
+
+interface SimulationMetrics {
+  trust: number;           // 信任度
+  alignment: number;       // 一致性
+  conflict: number;        // 冲突值
+  creativity: number;      // 创造力
+  outcome: number;         // 结果评分
+  coherence: number;       // 连贯性
+}
+```
+
+#### 4.1.3 多Agent状态管理
+
+```
+┌─────────────────────────────────────────────────┐
+│                    全局状态层                   │
+│  - 场景世界状态 (scene state)                 │
+│  - 时间/天气/事件流                            │
+│  - 共享记忆 (shared memory)                   │
+├─────────────────────────────────────────────────┤
+│                   Agent 私有状态                │
+│  - 角色心理状态 (beliefs, goals, emotions)   │
+│  - 短期记忆 (working memory - 当前对话)       │
+│  - 长期记忆 (episodic memory - 历史交互)      │
+├─────────────────────────────────────────────────┤
+│                   协调状态层                   │
+│  - Agent间关系图谱                             │
+│  - 通信协议/意图广播                           │
+│  - 冲突检测/ resolution                       │
+└─────────────────────────────────────────────────┘
+```
+
+#### 4.1.4 干预协议设计
+
+```typescript
+interface Intervention {
+  level: 'observe' | 'suggest' | 'interrupt';
+  timestamp: Date;
+  userId: string;
+  content?: string;      // 提示内容
+  reason?: string;       // 中断原因
+  agentResponse?: {      // Agent对干预的反应
+    adopted: boolean;
+    reasoning: string;
+  };
+}
+```
+
+| 层级 | 触发条件 | Agent响应 | 技术实现 |
+|------|----------|-----------|----------|
+| **旁观** | 自动 | Agent持续模拟，实时推送状态 | WebSocket流式推送 + 状态快照 |
+| **提示** | 用户输入 | Agent可选择采纳/忽略 | 消息队列注入 + 采纳率记录 |
+| **中断** | 强制停止 | 暂停模拟，等待人类输入 | 状态冻结 + 上下文保存 |
+
+### 4.2 人类干预方式
+
+| 层级 | 触发条件 | Agent响应 |
+|------|----------|-----------|
+| 旁观 | 自动 | Agent持续模拟，不暂停 |
+| 提示 | 用户输入 | Agent可选择采纳/忽略 |
+| 中断 | 强制停止 | 暂停模拟，等待人类输入 |
+
+---
+
+## 5. 辅助功能
+
+### 5.1 回忆功能
+
+- **形式**: 时间线展示
+- **内容**: Agent历史行为记录、决策过程、关键节点
+- **用途**: 用户回溯、行为分析、信任建立
+
+#### 5.1.1 事件溯源表设计
+
+```sql
+-- 核心事件表
+CREATE TABLE events (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  aggregate_id UUID NOT NULL,           -- 聚合根ID (user_id / agent_id / round_id)
+  aggregate_type TEXT NOT NULL,         -- 聚合类型: user, agent, round, match, debate, cotrial
+  event_type TEXT NOT NULL,             -- 事件类型: action.performed, decision.made, etc.
+  event_version INTEGER DEFAULT 1,      -- 事件版本
+  payload JSONB NOT NULL,               -- 事件载荷
+  metadata JSONB DEFAULT '{}',          -- 元数据 (trace_id, session_id)
+  caused_by_event_id UUID REFERENCES events(id), -- 因果链
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 索引
+CREATE INDEX idx_events_aggregate ON events(aggregate_type, aggregate_id, created_at DESC);
+CREATE INDEX idx_events_caused_by ON events(caused_by_event_id);
+```
+
+#### 5.1.2 Agent决策追踪
+
+```typescript
+interface AgentTrace {
+  id: string;
+  agentId: string;
+  sessionId: string;
+  startedAt: Date;
+  completedAt?: Date;
+  status: 'running' | 'completed' | 'failed';
+
+  // 决策树
+  spans: TraceSpan[];
+
+  // 关键决策点
+  decisions: AgentDecision[];
+
+  // 工具调用
+  toolCalls: ToolCall[];
+}
+
+interface TraceSpan {
+  id: string;
+  parentSpanId?: string;
+  name: string;                    // 'analyze_round', 'generate_match'
+  type: 'thinking' | 'action' | 'observation';
+  input: Record<string, any>;
+  output?: Record<string, any>;
+  startedAt: Date;
+  completedAt?: Date;
+  duration?: number;               // ms
+  tokens?: { prompt: number; completion: number; total: number };
+}
+
+interface AgentDecision {
+  id: string;
+  decisionType: 'select_action' | 'generate_response' | 'evaluate_match' | 'assess_risk';
+  context: {
+    availableActions: string[];
+    reasoning: string;             // LLM的推理过程
+    chosenAction: string;
+    confidence?: number;
+  };
+  createdAt: Date;
+}
+```
+
+#### 5.1.3 时间线查询API
+
+```typescript
+interface TimelineQuery {
+  userId: string;
+  startDate?: Date;
+  endDate?: Date;
+  eventTypes?: string[];
+  limit?: number;
+  offset?: number;
+  includeAgentTraces?: boolean;
+}
+
+async function queryUserTimeline(query: TimelineQuery) {
+  let baseQuery = supabase
+    .from('events')
+    .select('*')
+    .eq('aggregate_id', query.userId)
+    .order('created_at', { ascending: false });
+
+  if (query.startDate) baseQuery = baseQuery.gte('created_at', query.startDate.toISOString());
+  if (query.endDate) baseQuery = baseQuery.lte('created_at', query.endDate.toISOString());
+  if (query.eventTypes?.length) baseQuery = baseQuery.in('event_type', query.eventTypes);
+
+  return await baseQuery.range(query.offset ?? 0, (query.offset ?? 0) + (query.limit ?? 20));
+}
+```
+
+#### 5.1.4 UI组件选型
+
+| 场景 | 推荐组件 |
+|------|----------|
+| 活动热力图 | `react-github-calendar` |
+| 垂直时间线 | `@gravity-ui/timeline` |
+| Agent决策轨迹 | 自定义TraceTree组件 |
+
+#### 5.1.5 与AI服务集成
+
+在MiniMax客户端调用时自动记录trace：
+
+```typescript
+class MiniMaxClient {
+  async chat(options: MiniMaxCallOptions) {
+    const traceId = generateTraceId();
+    const spanId = generateSpanId();
+
+    // 1. 记录开始事件
+    await auditLogger.appendEvent(this.agentId, 'agent', 'agent.span.started',
+      { traceId, spanId, model: options.model });
+
+    // 2. 执行调用
+    const result = await this.executeChat(options);
+
+    // 3. 记录完成事件
+    await auditLogger.appendEvent(this.agentId, 'agent', 'agent.span.completed',
+      { traceId, spanId, output: result, latency: result.latency });
+
+    return result;
+  }
+}
+```
+
+### 5.2 信誉系统
+
+- **能力标签**: 专业领域、协作风格、信誉评分
+- **评估维度**: 完成度、响应质量、协作表现
+
+### 5.3 安全控制
+
+- **权限分级**: 公开/仅好友/私密
+- **内容审核**: 敏感词过滤、违规检测
+- **数据隔离**: 用户数据加密存储
+
+### 5.4 社区广场
+
+- **信息流**: 推荐圆桌、知遇卡展示、成功案例
+- **社交功能**: 关注、点赞、评论
+
+### 5.5 成长体系
+
+- **积分**: 参与圆桌、完成匹配、获得好评
+- **成就**: 匹配达人、讨论专家、伯乐奖章
+
+---
+
+## 6. UI 设计参考
+
+### 6.1 入口层
+
+- **模式切换**: Toggle开关 + 状态指示
+- **Agent发现**: Tinder式网格 + Agent卡片 (Character.AI Persona格式)
+- **设计参考**: 简洁的开关面板 + 卡片式列表
+
+### 6.2 伯乐层
+
+- **圆桌界面**: Discord频道布局 + Visual Novel对话风格
+- **设计参考**:
+  - 左侧: 参与者列表 + 发言状态
+  - 中间: 对话流 (气泡式 + 角色头像)
+  - 右侧: 实时分析面板
+
+### 6.3 共试层
+
+- **模拟界面**: RTS游戏HUD + 实时指标仪表盘
+- **设计参考**:
+  - 顶部: 模拟进度条 + 时间显示
+  - 核心区: Agent行为动画 + 对话气泡
+  - 侧边栏: 实时指标变化 (信任度/冲突值等)
+  - 底部: 干预按钮 (旁观/提示/中断)
+
+### 6.4 辅助功能
+
+- **安全设置**: Toggle List 面板 (简洁开关列表)
+- **回忆功能**: 时间线组件 + 关键节点高亮
+- **信誉展示**: 徽章系统 + 能力雷达图
+
+---
+
+## 7. 核心行为场景 (Gherkin)
 
 ```gherkin
+# 入口层 - Agent模式开关
+Feature: Agent模式开关控制
+  As a 用户
+  I want 切换Agent模式
+  So that 决定是否让我的Agent自动行动
+
+  Scenario: 开启Agent模式
+    Given 用户已登录
+    When 用户开启Agent模式
+    And 设置autoAction为true
+    Then Agent应自动参与圆桌讨论
+
 # 伯乐层 - 关系发现
 Feature: 伯乐层发现高价值连接
   As a 用户
@@ -56,7 +931,9 @@ Feature: 共试层低成本验证
     And 成功共试的关系进入长期追踪
 ```
 
-### 1.2 审计追踪设计
+---
+
+## 8. 审计追踪设计
 
 每个核心行为必须记录审计日志：
 
@@ -99,269 +976,7 @@ type AuditAction =
 
 ## 2. TDD 实现规范
 
-### 2.1 测试金字塔
-
-```
-    /\
-   /  \      E2E (5%)   - 关键用户旅程
-  /----\     ------------
- /      \    集成 (15%)  - API/服务边界
-/--------\   ------------
-          \  单元 (80%)   - 业务逻辑/工具函数
-```
-
-### 2.2 测试文件结构
-
-```
-lib/
-├── bole/                    # 伯乐层 - 关系发现
-│   ├── card-generator.ts    # 知遇卡生成器
-│   ├── card-generator.test.ts  # 单元测试
-│   ├── round-analyzer.ts  # 圆桌分析器
-│   └── round-analyzer.test.ts
-│
-├── zhengming/               # 争鸣层 - 关系验证
-│   ├── debate-engine.ts     # 对练引擎
-│   ├── debate-engine.test.ts
-│   ├── question-generator.ts
-│   └── response-analyzer.ts
-│
-├── gongshi/                 # 共试层 - 关系落地
-│   ├── task-assigner.ts
-│   └── task-evaluator.ts
-│
-├── audit/                   # 审计模块
-│   ├── logger.ts            # 审计日志记录器
-│   ├── logger.test.ts
-│   └── types.ts
-│
-└── supabase/                # 数据层
-    ├── client.ts
-    ├── schemas.ts
-    └── types.ts
-```
-
-### 2.3 单元测试示例
-
-```typescript
-// lib/bole/card-generator.test.ts
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { CardGenerator } from './card-generator';
-import type { Round, Message, User } from '@/types';
-
-describe('CardGenerator', () => {
-  let generator: CardGenerator;
-
-  beforeEach(() => {
-    generator = new CardGenerator({
-      minComplementarityScore: 60,
-      maxMatchesPerRound: 3,
-    });
-  });
-
-  describe('generateMatches', () => {
-    it('当圆桌讨论不足5分钟时应返回空数组', async () => {
-      // Arrange
-      const round = createMockRound({ duration: 4 * 60 * 1000 }); // 4分钟
-
-      // Act
-      const matches = await generator.generateMatches(round);
-
-      // Assert
-      expect(matches).toEqual([]);
-    });
-
-    it('当互补性评分低于阈值时应过滤掉', async () => {
-      // Arrange
-      const round = createMockRound({
-        duration: 10 * 60 * 1000,
-        messages: createComplementaryMessages(55), // 55分，低于60
-      });
-
-      // Act
-      const matches = await generator.generateMatches(round);
-
-      // Assert
-      expect(matches).toEqual([]);
-    });
-
-    it('应返回按评分排序的知遇卡', async () => {
-      // Arrange
-      const round = createMockRound({
-        duration: 15 * 60 * 1000,
-        messages: createMixedMessages(),
-      });
-
-      // Act
-      const matches = await generator.generateMatches(round);
-
-      // Assert
-      expect(matches).toHaveLength(3);
-      expect(matches[0].complementarityScore).toBeGreaterThanOrEqual(
-        matches[1].complementarityScore
-      );
-      expect(matches[1].complementarityScore).toBeGreaterThanOrEqual(
-        matches[2].complementarityScore
-      );
-    });
-
-    it('知遇卡应包含必需的元数据', async () => {
-      // Arrange
-      const round = createMockRound({
-        duration: 10 * 60 * 1000,
-        messages: createComplementaryMessages(85),
-      });
-
-      // Act
-      const matches = await generator.generateMatches(round);
-
-      // Assert
-      expect(matches[0]).toMatchObject({
-        id: expect.any(String),
-        userAId: expect.any(String),
-        userBId: expect.any(String),
-        complementarityScore: expect.any(Number),
-        futureGenerativity: expect.any(Number),
-        relationshipType: expect.stringMatching(/peer|cofounder|opponent|advisor|none/),
-        matchReason: expect.any(String),
-        insights: expect.any(Array),
-      });
-    });
-  });
-});
-
-// 辅助函数
-function createMockRound(overrides: Partial<Round> = {}): Round {
-  return {
-    id: 'round-123',
-    topicId: 'topic-456',
-    name: '测试圆桌',
-    status: 'completed',
-    participantCount: 5,
-    messageCount: 50,
-    createdAt: new Date().toISOString(),
-    ...overrides,
-  } as Round;
-}
-
-function createComplementaryMessages(score: number): Message[] {
-  // 模拟互补性消息
-  return [
-    { id: '1', userId: 'user-a', content: '我认为AI会改变教育...', type: 'text' },
-    { id: '2', userId: 'user-b', content: '但从技术实现角度...', type: 'text' },
-    // ...更多消息
-  ] as Message[];
-}
-
-function createMixedMessages(): Message[] {
-  // 模拟多种互补性的消息
-  return createComplementaryMessages(85);
-}
-```
-
-### 2.4 集成测试示例
-
-```typescript
-// tests/integration/bole-flow.test.ts
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { createClient } from '@supabase/supabase-js';
-import type { Round, User, Match } from '@/types';
-
-describe('伯乐层完整流程', () => {
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
-
-  let testUsers: User[];
-  let testRound: Round;
-
-  beforeAll(async () => {
-    // 创建测试用户
-    testUsers = await Promise.all([
-      createTestUser({ name: '测试用户A', expertise: ['AI', '教育'] }),
-      createTestUser({ name: '测试用户B', expertise: ['技术', '产品'] }),
-    ]);
-
-    // 创建测试圆桌
-    testRound = await createTestRound({
-      name: 'AI与未来教育',
-      participants: testUsers.map(u => u.id),
-    });
-  });
-
-  it('完整流程：圆桌讨论 → 生成知遇卡 → 数据审计', async () => {
-    // Step 1: 模拟圆桌讨论
-    const messages = await simulateRoundDiscussion(testRound.id, [
-      { userId: testUsers[0].id, content: 'AI会彻底改变教育方式...' },
-      { userId: testUsers[1].content: '但技术实现上还有挑战...' },
-      // ...更多消息
-    ]);
-
-    expect(messages).toHaveLengthGreaterThan(10);
-
-    // Step 2: 触发伯乐层分析
-    const { data: matches, error } = await supabase.functions.invoke('bole-analyze', {
-      body: { roundId: testRound.id },
-    });
-
-    expect(error).toBeNull();
-    expect(matches).toBeInstanceOf(Array);
-    expect(matches.length).toBeGreaterThan(0);
-
-    // Step 3: 验证知遇卡数据完整性
-    const match = matches[0];
-    expect(match).toMatchObject({
-      id: expect.any(String),
-      roundId: testRound.id,
-      userAId: expect.any(String),
-      userBId: expect.any(String),
-      complementarityScore: expect.any(Number),
-      relationshipType: expect.stringMatching(/peer|cofounder|opponent|advisor|none/),
-    });
-
-    // Step 4: 审计验证 - 检查所有操作是否被记录
-    const { data: auditLogs } = await supabase
-      .from('audit_logs')
-      .select('*')
-      .eq('resource->>type', 'round')
-      .eq('resource->>id', testRound.id)
-      .order('timestamp', { ascending: true });
-
-    expect(auditLogs.length).toBeGreaterThan(0);
-
-    // 验证审计链完整性
-    const expectedActions = [
-      'round.created',
-      'round.joined',
-      'message.created',
-      'round.completed',
-      'match.generated',
-    ];
-
-    const actualActions = auditLogs.map(log => log.action);
-
-    for (const action of expectedActions) {
-      expect(actualActions).toContain(action);
-    }
-
-    // Step 5: 数据一致性验证
-    const { data: roundCheck } = await supabase
-      .from('rounds')
-      .select('*, matches(*)')
-      .eq('id', testRound.id)
-      .single();
-
-    expect(roundCheck.matches).toHaveLength(matches.length);
-    expect(roundCheck.status).toBe('completed');
-  });
-
-  afterAll(async () => {
-    // 清理测试数据
-    await cleanupTestData(testRound.id, testUsers.map(u => u.id));
-  });
-});
-```
+> 详细规范见 [`tests/README.md`](tests/README.md)
 
 ---
 
@@ -637,9 +1252,9 @@ $$ LANGUAGE plpgsql IMMUTABLE;
 
 ---
 
-## 4. TDD 开发流程
+## 9. TDD 开发流程
 
-### 4.1 开发循环
+### 9.1 开发循环
 
 ```
 1. 编写 Gherkin 场景 (.feature)
@@ -657,40 +1272,60 @@ $$ LANGUAGE plpgsql IMMUTABLE;
 7. 提交代码
 ```
 
-### 4.2 目录结构
+### 9.2 目录结构
 
 ```
 zhiyu_roundtable/
 ├── features/                    # BDD Gherkin 场景
+│   ├── entry/
+│   │   └── agent-mode.feature
 │   ├── bole/
 │   │   └── discovery.feature
 │   ├── zhengming/
 │   │   └── validation.feature
 │   └── gongshi/
-│       └── trial.feature
+│       └── simulation.feature
 │
 ├── lib/                         # 核心业务逻辑
-│   ├── bole/
+│   ├── entry/                   # 入口层
+│   │   ├── agent-mode.ts       # Agent模式管理
+│   │   └── a2a-client.ts       # A2A协议客户端
+│   │
+│   ├── bole/                    # 伯乐层
 │   │   ├── __tests__/
 │   │   │   ├── card-generator.test.ts
 │   │   │   └── round-analyzer.test.ts
-│   │   ├── card-generator.ts
-│   │   └── round-analyzer.ts
+│   │   ├── card-generator.ts   # 知遇卡生成
+│   │   └── round-analyzer.ts   # 圆桌分析
 │   │
-│   ├── zhengming/
+│   ├── zhengming/               # 争鸣层
 │   │   ├── __tests__/
 │   │   │   ├── debate-engine.test.ts
 │   │   │   └── question-generator.test.ts
-│   │   ├── debate-engine.ts
+│   │   ├── debate-engine.ts    # 对练引擎
 │   │   └── question-generator.ts
 │   │
-│   ├── audit/
+│   ├── gongshi/                 # 共试层
+│   │   ├── simulation-engine.ts # 剧情模拟引擎
+│   │   └── task-assigner.ts    # 任务分配
+│   │
+│   ├── user/                    # 用户服务
+│   │   ├── user-service.ts
+│   │   └── reputation.ts       # 信誉系统
+│   │
+│   ├── memory/                  # 回忆功能
+│   │   └── timeline.ts
+│   │
+│   ├── audit/                   # 审计模块
 │   │   ├── __tests__/
 │   │   │   └── logger.test.ts
 │   │   ├── logger.ts
 │   │   └── types.ts
 │   │
-│   └── supabase/
+│   ├── ai/                      # AI服务
+│   │   └── minimax-client.ts   # MiniMax客户端
+│   │
+│   └── supabase/                # 数据层
 │       ├── client.ts
 │       └── types.ts
 │
@@ -698,14 +1333,26 @@ zhiyu_roundtable/
 │   ├── api/                   # API 路由
 │   │   ├── rounds/
 │   │   ├── matches/
-│   │   └── debates/
+│   │   ├── debates/
+│   │   ├── cotrials/
+│   │   └── users/
 │   │
 │   ├── (main)/
-│   │   ├── rounds/
-│   │   ├── matches/
-│   │   └── profile/
+│   │   ├── rounds/            # 圆桌讨论页
+│   │   ├── matches/          # 知遇卡页
+│   │   ├── debates/          # 争鸣对练页
+│   │   ├── cotrials/         # 共试模拟页
+│   │   ├── profile/          # 用户画像页
+│   │   └── square/           # 社区广场页
 │   │
-│   └── login/
+│   └── login/                 # 登录页
+│
+├── components/                # UI组件
+│   ├── entry/                 # 入口层组件
+│   ├── bole/                 # 伯乐层组件
+│   ├── zhengming/            # 争鸣层组件
+│   ├── gongshi/              # 共试层组件
+│   └── ui/                   # 通用UI组件
 │
 ├── tests/                      # 集成/E2E 测试
 │   ├── integration/
@@ -719,16 +1366,17 @@ zhiyu_roundtable/
 
 ---
 
-## 5. 配置更新
+## 10. 配置更新
 
-### 5.1 依赖更新
+### 10.1 依赖更新
 
 ```json
 {
   "dependencies": {
     "@supabase/supabase-js": "^2.39.0",
     "@supabase/auth-helpers-nextjs": "^0.9.0",
-    "@cucumber/cucumber": "^10.0.0"
+    "@anthropic-ai/a2a-protocol": "^0.1.0",
+    "@modelcontextprotocol/sdk": "^0.5.0"
   },
   "devDependencies": {
     "vitest": "^1.0.0",
@@ -740,24 +1388,88 @@ zhiyu_roundtable/
 
 ---
 
-## 6. 下一步行动
+## 11. 下一步行动 (黑客松)
 
-1. **初始化 Supabase 项目**
-   - 创建 Supabase 项目
-   - 运行 migrations
-   - 配置 RLS 策略
+### Phase 1: 核心功能 (MVP)
 
-2. **设置 TDD 环境**
-   - 配置 Vitest
-   - 编写第一个测试
-   - 实现最小功能
+1. **SecondMe OAuth 集成**
+   - 完成登录流程
+   - Agent模式开关
 
-3. **实现审计系统**
-   - 创建 audit_logs 表
-   - 实现自动审计触发器
-   - 添加审计查询 API
+2. **伯乐层 MVP**
+   - 圆桌创建与参与
+   - 知遇卡生成
 
-4. **编写 BDD 场景**
-   - 将需求转化为 Gherkin
-   - 实现步骤定义
-   - 运行端到端测试
+3. **数据层**
+   - Supabase 迁移
+   - RLS 策略
+
+### Phase 2: 扩展功能
+
+4. **争鸣层 MVP**
+   - 圆桌讨论界面
+   - 关系验证
+
+5. **共试层 MVP**
+   - 剧情模拟框架
+   - 干预机制
+
+### Phase 3: 完善
+
+6. **辅助功能**
+   - 回忆功能
+   - 信誉系统
+   - 社区广场
+
+7. **UI/UX 优化**
+   - 各层界面完善
+   - 响应式适配
+
+---
+
+## 12. 推荐技术栈
+
+| 功能 | 推荐方案 |
+|------|----------|
+| 多Agent框架 | **AutoGen** + 自定义State Machine |
+| 实时通信 | **Supabase Realtime** |
+| LLM | **MiniMax** (成本低，长上下文) |
+| 匹配引擎 | 自定义 + **Gorse** (可选) |
+| 状态管理 | **XState** (复杂流程编排) |
+| 记忆存储 | Supabase + 向量DB (RAG) |
+| UI风格 | Discord/Visual Novel混合 |
+
+### 12.1 推荐开源项目
+
+| 类别 | 项目 | 特点 |
+|------|------|------|
+| 多Agent | **AutoGen** (Microsoft) | GroupChat + 自定义speaker selection |
+| 多Agent | **Swarms** | RoundTableDiscussion、ExpertPanelDiscussion |
+| 多Agent | **CAMEL** | 角色扮演Agent框架 |
+| 推荐系统 | **Gorse** | Go实现，高性能，支持LLM ranker |
+| 游戏AI | **PettingZoo** | 多Agent强化学习环境 |
+| 模拟 | **Cogment** | Human-in-the-loop ML |
+| 模拟 | **AI Town** | 虚拟小镇 + 25个生成式Agent |
+| AI可观测性 | **Langfuse** | Trace/评估/Prompt管理 |
+
+### 12.2 开发优先级建议
+
+#### Phase 1: 基础搭建 (2周)
+1. 引入AutoGen框架
+2. 定义Persona Schema + Prompt模板
+3. 实现Supabase Realtime消息流
+
+#### Phase 2: 核心功能 (3周)
+4. 互补性评分算法实现
+5. 争鸣层对练流程
+6. 知遇卡生成逻辑
+
+#### Phase 3: 模拟增强 (2周)
+7. 共试层状态机
+8. 干预机制开发
+9. 实时指标面板
+
+#### Phase 4: 辅助功能 (2周)
+10. 回忆时间线
+11. 信誉系统
+12. 社区广场

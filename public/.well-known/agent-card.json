@@ -1,0 +1,46 @@
+{
+  "name": "知遇圆桌 Agent",
+  "description": "A2A 时代的高价值连接发现与验证系统 - 帮你找到本不该错过的人",
+  "url": "https://your-domain.com/api/a2a",
+  "version": "1.0.0",
+  "provider": {
+    "organization": "知遇圆桌",
+    "contactEmail": "contact@zhiyu.example.com"
+  },
+  "capabilities": {
+    "streaming": true,
+    "pushNotifications": true
+  },
+  "skills": [
+    {
+      "id": "round-discussion",
+      "name": "圆桌讨论",
+      "description": "参与圆桌讨论，分析讨论内容，生成洞察",
+      "inputModes": ["text"],
+      "outputModes": ["text"]
+    },
+    {
+      "id": "match-analysis",
+      "name": "知遇卡分析",
+      "description": "分析用户互补性，生成知遇卡推荐",
+      "inputModes": ["text"],
+      "outputModes": ["text", "json"]
+    },
+    {
+      "id": "debate-validation",
+      "name": "争鸣验证",
+      "description": "生成结构化对练问题，评估合作关系",
+      "inputModes": ["text"],
+      "outputModes": ["text", "json"]
+    },
+    {
+      "id": "cotrial-simulation",
+      "name": "共试模拟",
+      "description": "实时剧情模拟，关键时刻人类干预",
+      "inputModes": ["text"],
+      "outputModes": ["text", "json"]
+    }
+  ],
+  "defaultInputModes": ["text"],
+  "defaultOutputModes": ["text", "json"]
+}

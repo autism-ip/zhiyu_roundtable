@@ -30,11 +30,11 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, './'),
-      '@/lib': path.resolve(__dirname, './lib'),
-      '@/components': path.resolve(__dirname, './components'),
-      '@/app': path.resolve(__dirname, './app'),
-      '@/types': path.resolve(__dirname, './types'),
+      '@': path.resolve(__dirname, './src'),
+      '@/lib': path.resolve(__dirname, './src/lib'),
+      '@/components': path.resolve(__dirname, './src/components'),
+      '@/app': path.resolve(__dirname, './src/app'),
+      '@/types': path.resolve(__dirname, './src/types'),
     },
   },
 });
